@@ -120,17 +120,73 @@ class Bootstrap_fit:
         paramEsts=np.mean(bootstrap_params,axis=0)
         return paramEsts, paramCIs, standard_errors
 
-def tsEasyParseNamedArgs(args, argStruct):
-    avlArgs = fieldnames(argStruct)
-    for ia in M[1 : length(avlArgs)]:
-        argName = avlArgs[I[ia]]
-        argIndx = find(strcmpi(args, argName))
-        if _not(isempty(argIndx)):
-            val = args[I[argIndx + 1]]
-            argStruct[argName] = copy(val)
+  
+class ProbObject:
+    def __init__(self, subsrs, percent_m, percent, percent_p):
+        valid_data = subsrs[~np.isnan(subsrs)]
+        self.N = len(valid_data)
+        
+        # Target values
+        self.target_percent = percent
+        
+        # Percentiles (the actual data values)
+        if self.N > 0:
+            self.tM = np.nanpercentile(valid_data, percent_m)
+            self.t = np.nanpercentile(valid_data, percent)
+            self.tP = np.nanpercentile(valid_data, percent_p)
+        else:
+            self.tM = self.t = self.tP = np.nan
 
-    return argStruct
+        # Probabilities (normalized 0 to 1)
+        self.probM = percent_m / 100.0
+        self.prob = percent / 100.0
+        self.probP = percent_p / 100.0
+        
+    @property
+    def percentM(self): return self.probM * 100
     
+    @property
+    def percent(self): return self.prob * 100
+    
+    @property
+    def percentP(self): return self.probP * 100
+
+    def update(self, val, adding=True):
+        """Updates internal probabilities when a value enters or leaves the window."""
+        if np.isnan(val) or self.N <= (1 if not adding else 0):
+            return
+        
+        n_old = self.N
+        n_new = n_old + 1 if adding else n_old - 1
+        modifier = 1 if adding else -1
+        
+        # Logic: count if the new/old value is less than our tracked percentile values
+        self.probM = (self.probM * n_old + modifier * (val < self.tM)) / n_new
+        self.prob = (self.prob * n_old + modifier * (val < self.t)) / n_new
+        self.probP = (self.probP * n_old + modifier * (val < self.tP)) / n_new
+        self.N = n_new
+
+    def is_out_of_bounds(self):
+        """Check if the target percentile has drifted outside our tracked range."""
+        return self.percentM > self.target_percent or self.percentP < self.target_percent
+
+    def interpolate(self):
+        """Linearly interpolate to find the value at the target percentage."""
+        pM, p, pP = self.percentM, self.percent, self.percentP
+        tM, t, tP = self.tM, self.t, self.tP
+        target = self.target_percent
+        
+        if target == pM: return tM
+        if pM < target < p:
+            h1, h2 = p - target, target - pM
+            return (h1 * tM + h2 * t) / (h1 + h2)
+        if target == p: return t
+        if p < target < pP:
+            h1, h2 = pP - target, target - p
+            return (h1 * t + h2 * tP) / (h1 + h2)
+        if target == pP: return tP
+        return np.nan
+
 
 def tsEvaPlotTransfToStat(timeStamps, statSeries, srsmean, stdDev, thirdMom, fourthMom, **kwargs):
     axisFontSize=kwargs.get('axisFontSize', 20)
@@ -819,6 +875,54 @@ def tsEvaPlotGEV3D(X, timeStamps, epsilon, sigma, mu, **kwargs):
 
     return phandles
 
+def tsEvaNanRunningPercentile(series, windowSize, percent, **kwargs):
+    series = np.array(series)
+    length = len(series)
+    
+    # Configuration
+    if windowSize > 2000: delta = 1.0
+    elif windowSize > 1000: delta = 2.0
+    elif windowSize > 100: delta = 5.0
+    else: raise ValueError("window size cannot be less than 100")
+        
+    n_low_limit = kwargs.get('nLowLimit', 100)
+    p_delta = kwargs.get('percentDelta', delta)
+    pM_target, pP_target = percent - p_delta, percent + p_delta
+    
+    rn_prcnt0 = np.full(length, np.nan)
+    dx = int(np.ceil(windowSize / 2))
+    
+    # 1. Initialize
+    prob_obj = ProbObject(series[0 : dx + 1], pM_target, percent, pP_target)
+    rn_prcnt0[0] = prob_obj.t
+    
+    # 2. Process
+    for ii in range(1, length):
+        min_idx = max(ii - dx, 0)
+        max_idx = min(ii + dx, length - 1)
+        
+        # Remove exiting (left)
+        if min_idx > 0:
+            prob_obj.update(series[min_idx - 1], adding=False)
+
+        # Add entering (right)
+        if max_idx < length - 1:
+            prob_obj.update(series[max_idx + 1], adding=True)
+
+        # Re-initialize if the percentile drifted too far
+        if prob_obj.is_out_of_bounds():
+            prob_obj = ProbObject(series[min_idx : max_idx + 1], pM_target, percent, pP_target)
+            
+        # Interpolate
+        if prob_obj.N > n_low_limit:
+            rn_prcnt0[ii] = prob_obj.interpolate()
+
+    # 3. Smooth and Return
+    rnprcnt = tsEvaNanRunningMean(rn_prcnt0, windowSize)
+    std_error = np.nanstd(rn_prcnt0 - rnprcnt)
+    
+    return rnprcnt, std_error
+                                       
 def tsEvaPlotSeriesTrendStdDevFromAnalysisObj(nonStationaryEvaParams,stationaryTransformData,**kwargs):
     plotPercentile = kwargs.get('plotPercentile',-1)
     ylabel = kwargs.get('ylabel','levels (m)')
@@ -1454,15 +1558,6 @@ def tsEvaSampleData(ms, **kwargs):
         if (key=='potPercentiles'): 
             potPercentiles=value
 
-#    args = {'meanEventsPerYear': meanEventsPerYear,
-#            'minEventsPerYear': minEventsPerYear,
-#            'potPercentiles': [50, 70] + list(range(85, 98, 2))}
-#    meanEventsPerYear = args['meanEventsPerYear']
-#    minEventsPerYear = args['minEventsPerYear']
-#    potPercentiles = args['potPercentiles']
-
-#    if tail is None:
-#        raise ValueError("tail for POT selection needs to be 'high' or 'low'")
 
     POTData = tsGetPOT(ms, potPercentiles, meanEventsPerYear, **kwargs)
 
@@ -1621,57 +1716,63 @@ def tsSameValuesSegmentation(iii, val=1):
 
     return inds, rinds
 
-def tsRemoveConstantSubseries(srs, stackedValuesCount):
-    cleaned_series = srs.copy()
-    tmp1, tmp2 = tsSameValuesSegmentation(np.diff(srs), 0)
-    for i in range(len(tmp2)):
-        ii = tmp2[i]
-        if len(ii) >= stackedValuesCount:
-            cleaned_series[ii[2:end]] = nan
-    return cleaned_series
-
 def tsEvaFillSeries(timeStamps, series):
-    indxs = np.logical_not(np.isnan(series))
-    timeStamps = np.where(np.isnan(indxs), 0, timeStamps)
-    series = np.where(np.isnan(indxs), 0, series)
-    #    newTs, _, idx = set(timeStamps.sort())
-    newTs = sorted(set(timeStamps))
-    df = pd.DataFrame({'idx': indxs, 'value': series})
-    newSeries = df['value'].to_numpy()
+    mask = ~np.isnan(series)
+    ts_clean = np.array(timeStamps)[mask]
+    s_clean = np.array(series)[mask]
 
-
-    mint = min(newTs)
-    maxt = max(newTs)
-    dt = min(np.diff(newTs))
-    if (dt >= 350) and (dt <= 370):
-        mindtVec = datevec(mint)
-        mindtY = mindtVec(1)
-        maxdtVec = datevec(maxt)
-        maxdtY = maxdtVec(1)
-        years = (M[mindtY:maxdtY]).H
-        dtvec = M[[years, ones(size(years)), ones(size(years))]]
-        filledTimeStamps = datenum(dtvec)
-    elif (dt >= 28) and (dt <= 31):
-        mindtVec = datevec(mint)
-        mindtY = mindtVec(1)
-        maxdtVec = datevec(maxt)
-        maxdtY = maxdtVec(1)
-        years = M[mindtY:maxdtY]
-        months = M[1:12]
-        ymtx, mmtx = meshgrid(years, months)
-        ys = ymtx[I[:]]
-        ms = mmtx[I[:]]
-        dtvec = M[[ys, ms, ones(size(ys))]]
-        filledTimeStamps = datenum(dtvec)
-    else:
-        filledTimeStamps = np.arange(mint, maxt + dt, dt)
-    interp_function = interp1d(newTs, newSeries, kind='nearest', fill_value="extrapolate")
+    df = pd.DataFrame({'ts': ts_clean, 'val': s_clean}).sort_values('ts')
+    df_unique = df.groupby('ts')['val'].max().reset_index()
     
-    filledSeries = interp_function(filledTimeStamps)
-    filledSeries = tsRemoveConstantSubseries(filledSeries, 4)
-    return filledTimeStamps, filledSeries, dt
+    new_ts = df_unique['ts'].values
+    new_series = df_unique['val'].values
+    
+    min_t = np.min(new_ts)
+    max_t = np.max(new_ts)
+    diffs = np.diff(new_ts)
+    dt = np.min(diffs) if len(diffs) > 0 else 0
 
-import numpy as np
+    if 350 <= dt <= 370:
+        # Annual series
+        start_year = pd.to_datetime(min_t, unit='D', origin='719529').year
+        end_year = pd.to_datetime(max_t, unit='D', origin='719529').year
+        filled_dt = pd.date_range(start=f"{start_year}-01-01", 
+                                  end=f"{end_year}-01-01", freq='YS')
+        filled_time_stamps = (filled_dt - pd.Timestamp("0000-01-01")).days + 366
+        
+    elif 28 <= dt <= 31:
+        # Monthly series
+        start_date = pd.to_datetime(min_t, unit='D', origin='719529')
+        end_date = pd.to_datetime(max_t, unit='D', origin='719529')
+        filled_dt = pd.date_range(start=f"{start_date.year}-{start_date.month}-01", 
+                                  end=f"{end_date.year}-{end_date.month}-01", freq='MS')
+        filled_time_stamps = (filled_dt - pd.Timestamp("0000-01-01")).days + 366
+        
+    else:
+        # Linear spacing
+        filled_time_stamps = np.arange(min_t, max_t + dt, dt)
+
+    f = interp1d(new_ts, new_series, kind='nearest', fill_value="extrapolate")
+    filled_series = f(filled_time_stamps)
+
+    filled_series = tsRemoveConstantSubseries(filled_series, 4)
+
+    return filled_time_stamps, filled_series, dt
+
+def tsRemoveConstantSubseries(srs, stackedValuesCount):
+    series = np.array(srs, dtype=float)
+    count = 1
+    for i in range(1, len(series)):
+        if series[i] == series[i-1]:
+            count += 1
+        else:
+            if count >= stackedValuesCount:
+                series[i-count:i] = np.nan
+            count = 1
+    # Check last group
+    if count >= stackedValuesCount:
+        series[-count:] = np.nan
+    return series
 
 def tsEvaNanRunningMean(series, windowSize):
     minNThreshold = 1
