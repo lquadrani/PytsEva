@@ -1198,6 +1198,116 @@ def tsEvaPlotReturnLevelsGPDFromAnalysisObj(nonStationaryEvaParams, timeIndex, *
     )
     return phandles
 
+def tsPlotSeriesPotGPDRetLevFromAnalysisObj(nonStationaryEvaParams, stationaryTransformData, **kwargs):
+    """Plot original (non-stationary) series with time-varying GPD return levels and POT peaks.
+    Python port of MATLAB tsPlotSeriesPotGPDRetLevFromAnalysisObj."""
+    legendLocation = kwargs.get('legendLocation', 'upper left')
+    ylabel         = kwargs.get('ylabel', 'level (m)')
+    xlabel         = kwargs.get('xlabel', 'Date')
+    dateformat     = kwargs.get('dateformat', '%Y')
+    xtick          = kwargs.get('xtick', [])
+    figPosition    = kwargs.get('figPosition', [10, 10, 960, 420])
+    axisFontSize   = kwargs.get('axisFontSize', 16)
+    labelFontSize  = kwargs.get('labelFontSize', 18)
+    returnPeriods  = kwargs.get('returnPeriods', [5, 10, 30, 100])
+
+    timestamps = stationaryTransformData.timeStamps
+    series     = stationaryTransformData.nonStatSeries
+
+    epsilon      = nonStationaryEvaParams[1]['parameters']['epsilon']
+    sigma        = nonStationaryEvaParams[1]['parameters']['sigma']
+    threshold    = nonStationaryEvaParams[1]['parameters']['threshold']
+    thStart      = nonStationaryEvaParams[1]['parameters']['timeHorizonStart']
+    thEnd        = nonStationaryEvaParams[1]['parameters']['timeHorizonEnd']
+    timeHorizonInYears = round((thEnd - thStart) / 365.2425)
+    nPeaks       = nonStationaryEvaParams[1]['parameters']['nPeaks']
+    epsilonStdErr   = nonStationaryEvaParams[1]['paramErr']['epsilonErr']
+    sigmaStdErr     = nonStationaryEvaParams[1]['paramErr']['sigmaErr']
+    thresholdStdErr = nonStationaryEvaParams[1]['paramErr']['thresholdErr']
+
+    rlevel, _ = tsEvaComputeReturnLevelsGPD(
+        epsilon, sigma, threshold,
+        epsilonStdErr, sigmaStdErr, thresholdStdErr,
+        nPeaks, timeHorizonInYears, returnPeriods)
+
+    fig, ax = plt.subplots(figsize=(figPosition[2] / 100, figPosition[3] / 100))
+    colors = ['r', 'g', 'b', 'k', 'm', 'c']
+    ax.plot(timestamps, series, linewidth=0.5, label='Series')
+    for i, rp in enumerate(returnPeriods):
+        ax.plot(timestamps, rlevel[:, i], color=colors[i % len(colors)], label=str(rp))
+
+    peakIndexes = nonStationaryEvaParams[1]['objs'].get('peakIndexes')
+    if peakIndexes is not None:
+        ax.plot(timestamps[peakIndexes], series[peakIndexes], '*', color='cyan',
+                markersize=4, label='peaks')
+
+    ax.xaxis.set_major_formatter(mdates.DateFormatter(dateformat))
+    if xtick:
+        ax.set_xticks(xtick)
+        ax.set_xticklabels([datetime.fromordinal(int(t) - 366).strftime(dateformat) for t in xtick])
+    ax.set_xlim([timestamps[0], timestamps[-1]])
+    ax.set_xlabel(xlabel, fontsize=labelFontSize)
+    ax.set_ylabel(ylabel, fontsize=labelFontSize)
+    ax.tick_params(labelsize=axisFontSize)
+    ax.legend(loc=legendLocation, fontsize=axisFontSize)
+    ax.grid(True)
+    fig.tight_layout()
+    return {'fig': fig, 'ax': ax}
+
+
+def tsPlotSeriesYearMaxGEVRetLevFromAnalysisObj(nonStationaryEvaParams, stationaryTransformData, **kwargs):
+    """Plot original (non-stationary) series with time-varying GEV return levels and annual maxima.
+    Python port of MATLAB tsPlotSeriesYearMaxGEVRetLevFromAnalysisObj."""
+    legendLocation = kwargs.get('legendLocation', 'upper left')
+    ylabel         = kwargs.get('ylabel', 'level (m)')
+    xlabel         = kwargs.get('xlabel', 'Date')
+    dateformat     = kwargs.get('dateformat', '%Y')
+    xtick          = kwargs.get('xtick', [])
+    figPosition    = kwargs.get('figPosition', [10, 10, 960, 420])
+    axisFontSize   = kwargs.get('axisFontSize', 16)
+    labelFontSize  = kwargs.get('labelFontSize', 18)
+    returnPeriods  = kwargs.get('returnPeriods', [5, 10, 30, 100])
+
+    timestamps = stationaryTransformData.timeStamps
+    series     = stationaryTransformData.nonStatSeries
+
+    epsilon      = nonStationaryEvaParams[0]['parameters']['epsilon']
+    sigma        = nonStationaryEvaParams[0]['parameters']['sigma']
+    mu           = nonStationaryEvaParams[0]['parameters']['mu']
+    epsilonStdErr = nonStationaryEvaParams[0]['paramErr']['epsilonErr']
+    sigmaStdErr   = nonStationaryEvaParams[0]['paramErr']['sigmaErr']
+    muStdErr      = nonStationaryEvaParams[0]['paramErr']['muErr']
+
+    rlevel, _ = tsEvaComputeReturnLevelsGEV(
+        epsilon, sigma, mu,
+        epsilonStdErr, sigmaStdErr, muStdErr,
+        returnPeriods)
+
+    fig, ax = plt.subplots(figsize=(figPosition[2] / 100, figPosition[3] / 100))
+    colors = ['r', 'g', 'b', 'k', 'm', 'c']
+    ax.plot(timestamps, series, linewidth=0.5, label='Series')
+    for i, rp in enumerate(returnPeriods):
+        ax.plot(timestamps, rlevel[:, i], color=colors[i % len(colors)], label=f'{rp}-yr')
+
+    annualMaxIndexes = nonStationaryEvaParams[0]['objs'].get('annualMaxIndexes')
+    if annualMaxIndexes is not None:
+        ax.plot(timestamps[annualMaxIndexes], series[annualMaxIndexes], '*',
+                color='cyan', markersize=6, label='Annual max')
+
+    ax.xaxis.set_major_formatter(mdates.DateFormatter(dateformat))
+    if xtick:
+        ax.set_xticks(xtick)
+        ax.set_xticklabels([datetime.fromordinal(int(t) - 366).strftime(dateformat) for t in xtick])
+    ax.set_xlim([timestamps[0], timestamps[-1]])
+    ax.set_xlabel(xlabel, fontsize=labelFontSize)
+    ax.set_ylabel(ylabel, fontsize=labelFontSize)
+    ax.tick_params(labelsize=axisFontSize)
+    ax.legend(loc=legendLocation, fontsize=axisFontSize)
+    ax.grid(True)
+    fig.tight_layout()
+    return {'fig': fig, 'ax': ax}
+
+
 def tsEvaPlotReturnLevelsGPD(epsilon, sigma, threshold, epsilonStdErr, sigmaStdErr,thresholdStdErr,nPeaks,timeHorizonInYears,**kwargs):
     # Default argument values
 
@@ -1622,7 +1732,7 @@ def tsTimeSeriesToPointData(ms, pot_threshold, pot_threshold_error):
 def tsEvaSampleData(ms, **kwargs):
     pctsDesired = [90, 95, 99, 99.9]
     meanEventsPerYear=kwargs.get('meanEventsPerYear',5)
-    potPercentiles=kwargs.get('potPercentiles',[50, 70] + list(range(85, 98, 2)))
+    potPercentiles=kwargs.get('potPercentiles', list(np.arange(97, 99.5, 0.5)))  # [97, 97.5, 98, 98.5, 99] — matches tsEva 2.0 examples
 
     for key, value in kwargs.items():
         if (key=='meanEventsPerYear'): 
@@ -2333,7 +2443,10 @@ def tsEvaNonStationary(timeAndSeries, timeWindow, **kwargs):
             'parameters': gevParams,
             'paramErr': gevParamErr,
             'stationaryParams': eva[0],
-            'objs': {'monthlyMaxIndexes': pointData.get('monthlyMaxIndexes', None)}
+            'objs': {
+                'monthlyMaxIndexes': pointData.get('monthlyMaxIndexes', None),
+                'annualMaxIndexes': pointData.get('annualMaxIndx', None),
+            }
         }
     else:
         gevObj = {
@@ -2341,7 +2454,7 @@ def tsEvaNonStationary(timeAndSeries, timeWindow, **kwargs):
             'parameters': None,
             'paramErr': None,
             'stationaryParams': None,
-            'objs': {'monthlyMaxIndexes': None}
+            'objs': {'monthlyMaxIndexes': None, 'annualMaxIndexes': None},
         }
         
 
@@ -2398,7 +2511,7 @@ def tsEvaNonStationary(timeAndSeries, timeWindow, **kwargs):
             'parameters': potParams,
             'paramErr': potParamErr,
             'stationaryParams': eva[1],
-            'objs': {}
+            'objs': {'peakIndexes': pointData['POT']['ipeaks']}
         }
     else:
         potObj = {
@@ -2406,7 +2519,7 @@ def tsEvaNonStationary(timeAndSeries, timeWindow, **kwargs):
             'parameters': None,
             'paramErr': None,
             'stationaryParams': None,
-            'objs': {}
+            'objs': {'peakIndexes': None}
         }
         
     # Final output
