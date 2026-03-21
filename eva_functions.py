@@ -8,6 +8,13 @@ import matplotlib.pyplot as plt
 from scipy.interpolate import interp1d
 import matplotlib.dates as mdates
 from datetime import datetime, timedelta
+import warnings
+
+
+def datetime_to_datenum(dt):
+    ord_num = dt.toordinal()
+    frac_day = (dt - datetime(dt.year, dt.month, dt.day)).total_seconds() / 86400
+    return ord_num + frac_day + 366
 
 
 class Bootstrap_fit:
@@ -18,10 +25,12 @@ class Bootstrap_fit:
 
     def fit_genextreme(self):
         # List to store bootstrap parameters
-        paramEsts=[]
         bootstrap_params = []
         percentiles = [32, 68]  # Desired percentiles (min, max)
-        paramEsts=gev.fit(self.data)
+        # Full-data MLE (used as point estimate and as seed for bootstrap fits)
+        full_data_fit = gev.fit(self.data)
+        # Apply sign convention: scipy uses -epsilon, we use +epsilon
+        paramEsts = np.array([-full_data_fit[0], full_data_fit[1], full_data_fit[2]])
 
         for j in range(self.n_bootstraps):
             # Resample with replacement
@@ -29,7 +38,7 @@ class Bootstrap_fit:
             
             try:
                 # Fit the GEV distribution to the sample using MLE method
-                params_bs = gev.fit(sample, method="MLE", loc=paramEsts[1], scale=paramEsts[2])
+                params_bs = gev.fit(sample, method="MLE", loc=full_data_fit[1], scale=full_data_fit[2])
                 # Append the parameters from this bootstrap sample
                 bootstrap_params.append(params_bs)
             except Exception as e:
@@ -43,7 +52,7 @@ class Bootstrap_fit:
         ci_lower = np.percentile(bootstrap_params, percentiles[0],axis=0)
         ci_upper = np.percentile(bootstrap_params, percentiles[1],axis=0)
         paramCIs = np.vstack((ci_lower, ci_upper)).T
-        paramEsts=np.mean(bootstrap_params,axis=0)
+        # Return full-data MLE as point estimate; bootstrap is used only for CIs
         return paramEsts, paramCIs
 
     def fit_gumbel(self):
@@ -79,18 +88,24 @@ class Bootstrap_fit:
 
     def fit_genpareto(self):
         # List to store bootstrap parameters
-        paramEsts=[]
         bootstrap_params = []
         percentiles = [32, 68]  # Desired percentiles (min, max)
-        paramEsts=genpareto.fit(self.data,method="MLE",loc=np.mean(self.data),scale=np.std(self.data))
-        
+        # Use method-of-moments starting values, matching MATLAB gpfit's initialisation.
+        # For CV < 1 (common with high-threshold exceedances) k0 is negative, so the
+        # optimizer converges to the correct negative-shape MLE instead of a near-zero one.
+        m1 = np.mean(self.data)
+        m2 = np.var(self.data)
+        k0 = 0.5 * (1.0 - m1**2 / m2)   # MoM shape estimate
+        s0 = 0.5 * m1 * (1.0 + m1**2 / m2)  # MoM scale estimate
+        paramEsts = genpareto.fit(self.data, k0, floc=0, scale=s0)
+
         for j in range(self.n_bootstraps):
             # Resample with replacement
             sample = np.random.choice(self.data, size=len(self.data), replace=True)
-            
+
             try:
-                # Fit the GPD distribution
-                params_bs = genpareto.fit(sample,method="MLE",loc=paramEsts[1],scale=paramEsts[2])
+                # Seed bootstrap fit from full-data MLE for stability
+                params_bs = genpareto.fit(sample, paramEsts[0], floc=0, scale=paramEsts[2])
                 # Append the parameters from this bootstrap sample
                 bootstrap_params.append(params_bs)
             except Exception as e:
@@ -117,7 +132,7 @@ class Bootstrap_fit:
 
         # Convert to a numpy array for easy access
         standard_errors = np.array(standard_errors)
-        paramEsts=np.mean(bootstrap_params,axis=0)
+        # Return full-data MLE as point estimate; bootstrap is used only for CIs
         return paramEsts, paramCIs, standard_errors
 
   
@@ -1624,7 +1639,11 @@ def tsGetPOT(ms, pcts, desiredEventsPerYear, **kwargs):
         
         #        if tail == "high":
         shape_bnd = [-0.5, 1]
-        locs,pks = find_peaks(ms[:, 1], height=thrsdt,distance=minPeakDistance)
+        if 'custom_peak_locs' in kwargs and kwargs['custom_peak_locs'] is not None:
+            locs = np.array(kwargs['custom_peak_locs'])
+            pks = ms[locs, 1]
+        else:
+            locs,pks = find_peaks(ms[:, 1], height=thrsdt, distance=minPeakDistance)
             
 #        if tail == "low":
 #            shape_bnd = [-1.5, 0]
@@ -2117,78 +2136,82 @@ def tsEvaTransformSeriesToStationaryMultiplicativeSeasonality(timeStamps, series
     
     return trasfData
 
-def tsEvaNonStationary(timeAndSeries, timeWindow,**kwargs):
+def tsEvaNonStationary(timeAndSeries, timeWindow, **kwargs):
 
-    transfType=kwargs.get('transfType','trend')
-    minPeakDistanceInDays=kwargs.get('minPeakDistanceInDays',-1)
-    ciPercentile=kwargs.get('ciPercentile',np.nan)
-    potEventsPerYear=kwargs.get('potEventsPerYear',5)
-    evdType=kwargs.get('evdType',['GEV', 'GPD'])
-    gevType=kwargs.get('gevType','GEV')  # can be 'GEV' or 'Gumbel'
+    transfType = kwargs.get('transfType', 'trend')
+    minPeakDistanceInDays = kwargs.get('minPeakDistanceInDays', -1)
+    ciPercentile = kwargs.get('ciPercentile', np.nan)
+    potEventsPerYear = kwargs.get('potEventsPerYear', 5)
+    evdType = kwargs.get('evdType', ['GEV', 'GPD'])
+    gevType = kwargs.get('gevType', 'GEV')  # can be 'GEV' or 'Gumbel'
     
     for key, value in kwargs.items():
-        if (key=='transfType'): 
-            transfType=value
-        if (key=='minPeakDistanceInDays'): 
-            minPeakDistanceInDays=value
-        if (key=='evdType'): 
-            evdType=value
-        if (key=='gevType'): 
-            gevType=value
-        if (key=='potEventsPerYear'): 
-            potEventsPerYear=value
-        if (key=='ciPercentile'): 
-            ciPercentile=value
+        if (key == 'transfType'): 
+            transfType = value
+        if (key == 'minPeakDistanceInDays'): 
+            minPeakDistanceInDays = value
+        if (key == 'evdType'): 
+            evdType = value
+        if (key == 'gevType'): 
+            gevType = value
+        if (key == 'potEventsPerYear'): 
+            potEventsPerYear = value
+        if (key == 'ciPercentile'): 
+            ciPercentile = value
 
-    if not(
-            (
-                (transfType == "trend" or transfType == "seasonal")
-                or transfType == "trendCIPercentile"
-            )
-            or transfType == "seasonalCIPercentile"
-    ): print("nonStationaryEvaJRCApproach: transfType can be in (trend, seasonal, trendCIPercentile)")
+    valid_transf_types = ["trend", "seasonal", "trendCIPercentile", "seasonalCIPercentile", "trendlinear"]
+    if transfType not in valid_transf_types:
+        print("nonStationaryEvaJRCApproach: transfType can be in (trend, seasonal, trendCIPercentile, seasonalCIPercentile, trendlinear)")
     
-    if (minPeakDistanceInDays==-1):
-        print("label parameter " "minPeakDistanceInDays" " must be set")
+    if (minPeakDistanceInDays == -1):
+        print("label parameter 'minPeakDistanceInDays' must be set")
         
     nonStationaryEvaParams = []
     stationaryTransformData = []
-	
+    
     timeStamps = timeAndSeries[:, 0]
     series = timeAndSeries[:, 1]
     
-    if (transfType=="trend"):
+    if (transfType == "trend"):
         print("evaluating long term variations of extremes")
         trasfData = tsEvaTransformSeriesToStationaryTrendOnly(timeStamps, series, timeWindow)
         
         gevMaxima = "annual"
         potEventsPerYear = 5
         
-    elif (transfType=="seasonal"):
+    elif (transfType == "seasonal"):
         print("evaluating long term an seasonal variations of extremes")
-        trasfData = tsEvaTransformSeriesToStationaryMultiplicativeSeasonality(timeStamps, series, timeWindow, **kwargs);
+        trasfData = tsEvaTransformSeriesToStationaryMultiplicativeSeasonality(timeStamps, series, timeWindow, **kwargs)
         gevMaxima = "monthly"
         potEventsPerYear = 12
+
+    # 2:"trendlinear"
+    elif (transfType == "trendlinear"):
+        if np.isnan(ciPercentile):
+            print("For trendLinear transformation the label parameter 'cipercentile' is mandatory")
+        print("estimating a linear long-term trend")
+        trasfData = tsEvaTransformSeriesToStationaryTrendLinear(timeStamps, series, timeWindow, ciPercentile, **kwargs)
+        gevMaxima = "annual"
+        potEventsPerYear = 5
         
-    elif (transfType=="trendCIPercentile"):
-        if (ciPercentile==np.nan):
-            print("For trendCIPercentile transformation the label parameter ''cipercentile'' is mandatory:")
-            print("evaluating long term variations of extremes using the th percentile")
-            gevMaxima = "annual"
-            potEventsPerYear = 5
-    elif (transfType=="seasonalCIPercentile"): 
-        if (ciPercentile==np.nan):
-            print("For seasonalCIPercentile transformation the label parameter ''cipercentile'' is mandatory")
-            print(f"evaluating long term variations of extremes using the {ciPercentile:3f} th percentile")
-            gevMaxima = "monthly"
-            potEventsPerYear = 12
+    elif (transfType == "trendCIPercentile"):
+        if np.isnan(ciPercentile):
+            print("For trendCIPercentile transformation the label parameter 'cipercentile' is mandatory:")
+        print("evaluating long term variations of extremes using the th percentile")
+        trasfData = tsEvaTransformSeriesToStationaryTrendOnly_ciPercentile(timeStamps, series, timeWindow, ciPercentile, **kwargs)
+        gevMaxima = "annual"
+        potEventsPerYear = 5
+        
+    elif (transfType == "seasonalCIPercentile"): 
+        if np.isnan(ciPercentile):
+            print("For seasonalCIPercentile transformation the label parameter 'cipercentile' is mandatory")
+        print(f"evaluating long term variations of extremes using the {ciPercentile:.3f} th percentile")
+        trasfData = tsEvaTransformSeriesToStatSeasonal_ciPercentile(timeStamps, series, timeWindow, ciPercentile, **kwargs)
+        gevMaxima = "monthly"
+        potEventsPerYear = 12
     
-        # Adjust potEventsPerYear if overridden
-    #if 'potEventsPerYear' in kwargs:
-    #    potEventsPerYear = kwargs['potEventsPerYear']
     if potEventsPerYear != -1:
         potEventsPerYear = kwargs.get('potEventsPerYear', 5)
-    
 
     ms = np.column_stack((trasfData.timeStamps, trasfData.stationarySeries))
     dt = tsEvaGetTimeStep(trasfData.timeStamps)
@@ -2199,11 +2222,10 @@ def tsEvaNonStationary(timeAndSeries, timeWindow,**kwargs):
     pointData = tsEvaSampleData(ms, meanEventsPerYear=potEventsPerYear, **kwargs)
     alphaCi = 0.68
     _, eva, is_valid = tsEVstatistics(pointData, alphaci=alphaCi, gevMaxima=gevMaxima, gevType=gevType, evdType=evdType, tail=None)
+    
     if not is_valid:
         return None, None, False
 
-    #    eva[1]['thresholdError'] = pointData['POT']['thresholdError']
-    
     eva[1]['thresholdError'] = pointData['POT']['thresholdError']
     
     # GEV processing
@@ -2679,7 +2701,7 @@ def tsEvaComputeMonthlyMaxima(time_and_series):
     mnttmvec = pd.DataFrame({'yrs': yrs, 'mnts': mnts})
     vals_indxs = np.arange(0, len(srs))
     
-    monthly_max_indx = mnttmvec.groupby(['yrs', 'mnts']).apply(lambda x: find_max(x.index, srs), include_groups=False).reset_index(name='valsIndxs')
+    monthly_max_indx = mnttmvec.groupby(['yrs', 'mnts']).apply(lambda x: find_max(x.index, srs)).reset_index(name='valsIndxs')
     monthly_max_indx['valsIndxs'] = monthly_max_indx['valsIndxs'].astype(int)
     monthly_max_indx = monthly_max_indx.sort_values(by=['yrs', 'mnts'])['valsIndxs']
     monthly_max = srs[monthly_max_indx]
@@ -2696,7 +2718,7 @@ def tsEvaComputeAnnualMaxima(time_and_series):
     srs_indices = range(0, len(srs))
     unique_years = np.unique(years)
     df = pd.DataFrame({'years': years, 'srs_indices': srs_indices, 'srs': srs})
-    annual_max_indx = df.groupby('years').apply(lambda group: find_max(group['srs_indices'].values, df['srs'].values), include_groups=False)
+    annual_max_indx = df.groupby('years').apply(lambda group: find_max(group['srs_indices'].values, df['srs'].values))
     annual_max = [srs[i] for i in annual_max_indx]
     annual_max_date = time_stamps[annual_max_indx]
 
@@ -2883,3 +2905,326 @@ def empdisl(x, nyr):
     })
     
     return empip
+
+
+def tsEvaTransformSeriesToStationaryTrendLinear(timeStamps, series, timeWindow, percentile, **kwargs):
+    """
+    Calculates linear trend of the series and the linear trend of a percentile series.
+    Returns an object with stationary series, trends, and errors.
+    """
+    extremeLowThreshold = kwargs.get('extremeLowThreshold', -np.inf)
+    
+    print('computing the trend series using linear regression of yearly-averaged values...')
+    print(f'computing the percentile series using linear regression of yearly {percentile}th percentile values...')
+    
+    # Remove nan values, add nan where constant values are found, omit duplicates
+    # (Assuming tsEvaFillSeries is already defined in your eva_functions.py)
+    filledTimeStamps, filledSeries, dt = tsEvaFillSeries(timeStamps, series)
+    
+    nRunMn = int(np.ceil(timeWindow / dt))
+    
+    # Extract years from timeStamps (Converting MATLAB datenum style to years)
+    years = np.array([datetime.fromordinal(int(t) - 366).year if t > 366 else 0 for t in filledTimeStamps])
+    
+    # Selection of yearly segments
+    unique_years, iAA = np.unique(years, return_index=True)
+    iAA = np.sort(iAA) # ensure chronological order like MATLAB's 'stable'
+    iAA = np.append(iAA, len(filledTimeStamps)) # add the end index
+    
+    yearlyAveragedSeries = np.zeros(len(unique_years))
+    yearlyMaxSeries = np.zeros(len(unique_years))
+    percentileSeries = np.zeros(len(unique_years))
+    filledTimeStampsYearly = np.zeros(len(unique_years))
+    
+    # Suppress warnings for all-NaN slices
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=RuntimeWarning)
+        
+        # Loop through all yearly segments
+        for ij in range(len(unique_years)):
+            idx_start = iAA[ij]
+            idx_end = iAA[ij+1]
+            
+            filledTimeStampsYearly[ij] = np.mean(filledTimeStamps[idx_start:idx_end])
+            filledSeriesYear = filledSeries[idx_start:idx_end]
+            
+            yearlyAveragedSeries[ij] = np.nanmean(filledSeriesYear)
+            yearlyMaxSeries[ij] = np.nanmax(filledSeriesYear) if not np.all(np.isnan(filledSeriesYear)) else np.nan
+            percentileSeries[ij] = np.nanpercentile(filledSeriesYear, percentile)
+            
+    # Perform linear regression
+    idGood = ~np.isnan(yearlyAveragedSeries)
+    
+    # polyfit returns [slope, intercept]
+    p = np.polyfit(filledTimeStampsYearly[idGood], yearlyAveragedSeries[idGood], 1)
+    p1 = np.polyfit(filledTimeStampsYearly[idGood], percentileSeries[idGood], 1)
+    
+    # Assess Mann-Kendall analysis
+    try:
+        # Assuming tsMann_Kendall is defined in eva_functions.py
+        _, p_value = tsMann_Kendall(percentileSeries[idGood], 0.05)
+        _, pValueChangeAnnual = tsMann_Kendall(yearlyMaxSeries[idGood], 0.05)
+    except NameError:
+        p_value, pValueChangeAnnual = np.nan, np.nan
+        
+    # Expand linear regression model to the entire length
+    trendSeries = p[0] * filledTimeStamps + p[1]
+    
+    # Assess error in regression (Standard error of residuals approximation)
+    res_trend = yearlyAveragedSeries[idGood] - (p[0] * filledTimeStampsYearly[idGood] + p[1])
+    trendErrorSeries = np.full_like(filledTimeStamps, np.nanstd(res_trend))
+    trendError = np.mean(trendErrorSeries)
+    
+    # Perform detrending
+    filledSeries = np.where(filledSeries < extremeLowThreshold, np.nan, filledSeries)
+    detrendSeries = filledSeries - trendSeries
+    
+    # Expand linear regression model for percentiles
+    PercentileSeriesTotal = p1[0] * filledTimeStamps + p1[1]
+    
+    # Calculate std dev series
+    stdDevSeries = (PercentileSeriesTotal - trendSeries)
+    
+    # Calculate stationary series
+    statSeries = detrendSeries / stdDevSeries
+    
+    percentileSeriesStat = np.zeros(len(unique_years))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=RuntimeWarning)
+        for ij in range(len(unique_years)):
+            idx_start = iAA[ij]
+            idx_end = iAA[ij+1]
+            statSeriesYear = statSeries[idx_start:idx_end]
+            percentileSeriesStat[ij] = np.nanpercentile(statSeriesYear, percentile)
+            
+    try:
+        _, p_valueStat = tsMann_Kendall(percentileSeriesStat, 0.05)
+    except NameError:
+        p_valueStat = np.nan
+        
+    # Assess tendencies
+    percentChangeTrend = ((trendSeries[-1] - trendSeries[0]) / abs(trendSeries[0])) * 100
+    percentChangePercentile = ((PercentileSeriesTotal[-1] - PercentileSeriesTotal[0]) / abs(PercentileSeriesTotal[0])) * 100
+    
+    # Assess error in regression model used for percentiles
+    res_prctile = percentileSeries[idGood] - (p1[0] * filledTimeStampsYearly[idGood] + p1[1])
+    ErrorPercentile = np.full_like(filledTimeStamps, np.nanstd(res_prctile))
+    
+    # combination of errors
+    stdErr = np.sqrt(ErrorPercentile**2 + trendErrorSeries**2)
+    
+    # Assess third and fourth moment statistics
+    # Assuming tsEvaNanRunningStatistics & tsEvaNanRunningMean are defined
+    _, _, statSer3Mom, statSer4Mom = tsEvaNanRunningStatistics(statSeries, nRunMn)
+    statSer3Mom = tsEvaNanRunningMean(statSer3Mom, int(np.ceil(nRunMn)))
+    statSer4Mom = tsEvaNanRunningMean(statSer4Mom, int(np.ceil(nRunMn)))
+    
+    # Prepare the output object
+    class TrasfData:
+        pass
+        
+    trasfData = TrasfData()
+    trasfData.runningStatsMulteplicity = 0
+    trasfData.stationarySeries = statSeries
+    trasfData.trendSeries = trendSeries
+    trasfData.trendSeriesNonSeasonal = trendSeries
+    trasfData.trendError = trendError
+    trasfData.stdDevSeries = stdDevSeries
+    trasfData.stdDevSeriesNonSeasonal = stdDevSeries
+    trasfData.stdDevError = stdErr
+    trasfData.timeStamps = filledTimeStamps
+    trasfData.nonStatSeries = filledSeries
+    trasfData.statSer3Mom = statSer3Mom
+    trasfData.statSer4Mom = statSer4Mom
+    trasfData.pValueChange = p_value
+    trasfData.pValueChangeStat = p_valueStat
+    trasfData.pValueChangeAnnual = pValueChangeAnnual
+    trasfData.percentChangeTrend = percentChangeTrend
+    trasfData.percentChangePercentile = percentChangePercentile
+    
+    return trasfData
+
+
+def tsMann_Kendall(V, alpha=0.05):
+    """
+    Performs original Mann-Kendall test of the null hypothesis of trend absence.
+    Returns:
+        H: 1 indicates a rejection of the null hypothesis (trend exists). 
+           0 indicates a failure to reject (no trend).
+        p_value: p-value of the test.
+    """
+    import numpy as np
+    from scipy.stats import norm
+    
+    V = np.asarray(V).flatten()
+    # Remove NaNs to be safe
+    V = V[~np.isnan(V)]
+    n = len(V)
+    
+    if n < 3:
+        return 0, np.nan
+        
+    alpha_half = alpha / 2.0
+    
+    S = 0
+    # Vectorized calculation for speed (equivalent to the double loop in MATLAB)
+    for i in range(n - 1):
+        S += np.sum(np.sign(V[i+1:] - V[i]))
+        
+    VarS = (n * (n - 1) * (2 * n + 5)) / 18.0
+    StdS = np.sqrt(VarS)
+    
+    # Note: ties are not considered (matching the MATLAB version)
+    if S > 0:
+        Z = (S - 1) / StdS
+    elif S < 0:
+        Z = (S + 1) / StdS
+    else:
+        Z = 0
+        
+    p_value = 2 * (1 - norm.cdf(abs(Z), loc=0, scale=1))
+    pz = norm.ppf(1 - alpha_half, loc=0, scale=1)
+    
+    H = 1 if abs(Z) > pz else 0
+    
+    return H, p_value
+
+
+def tsEvaTransformSeriesToStatSeasonal_ciPercentile(timeStamps, series, timeWindow, percentile, **kwargs):
+    """
+    Decomposes the series into a season-dependent trend and a season-dependent 
+    standard deviation using percentiles.
+    """
+    seasonalityTimeWindow = 2 * 30.4  # 2 months
+    
+    print('computing trend ...')
+    # tsEvaDetrendTimeSeries returns 5 values in this specific order
+    statSeries, trendSeries, filledTimeStamps, filledSeries, nRunMn = tsEvaDetrendTimeSeries(
+        timeStamps, series, timeWindow, **kwargs
+    )
+    
+    print('computing trend seasonality ...')
+    trendSeasonality = tsEstimateAverageSeasonality(filledTimeStamps, statSeries)
+    statSeries = statSeries - trendSeasonality
+    
+    print(f'computing the slowly varying {percentile}th percentile ...')
+    percentileSeries = tsEvaNanRunningPercentile(statSeries, nRunMn, percentile, **kwargs)[0]
+    
+    seasonalVarNRun = int(np.round(nRunMn / timeWindow * seasonalityTimeWindow))
+    
+    print('computing standard deviation seasonality ...')
+    seasonalVarSeries = tsEvaNanRunningVariance(statSeries, seasonalVarNRun)
+    
+    # Suppress warnings for sqrt of potentially negative/invalid values
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=RuntimeWarning)
+        seasonalStdDevSeries = np.sqrt(seasonalVarSeries / percentileSeries)
+        
+    seasonalStdDevSeries = tsEstimateAverageSeasonality(filledTimeStamps, seasonalStdDevSeries)
+    
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=RuntimeWarning)
+        stdDevSeriesNonSeasonal = np.sqrt(percentileSeries)
+        
+    statSeries = statSeries / (stdDevSeriesNonSeasonal * seasonalStdDevSeries)
+    
+    _, _, statSer3Mom, statSer4Mom = tsEvaNanRunningStatistics(statSeries, nRunMn)
+    statSer3Mom = tsEvaNanRunningMean(statSer3Mom, int(np.ceil(nRunMn)))
+    statSer4Mom = tsEvaNanRunningMean(statSer4Mom, int(np.ceil(nRunMn)))
+    
+    N = nRunMn
+    trendNonSeasonalError = np.nanmean(stdDevSeriesNonSeasonal) / np.sqrt(N)
+    
+    S = 2
+    avgStdDev = np.nanmean(stdDevSeriesNonSeasonal)
+    stdDevNonSeasonalError = avgStdDev * (2 * S**2 / N**3)**(1/4)
+    
+    Ntot = len(series)
+    trendSeasonalError = stdDevNonSeasonalError * np.sqrt(12 / Ntot + 1 / N)
+    stdDevSeasonalError = seasonalStdDevSeries * (288 / Ntot**2 / N)**(1/4)
+    
+    trendError = np.sqrt(trendNonSeasonalError**2 + trendSeasonalError**2)
+    stdDevError = np.sqrt((stdDevSeriesNonSeasonal * stdDevSeasonalError)**2 + 
+                          (seasonalStdDevSeries * stdDevNonSeasonalError)**2)
+    
+    # Prepare the output object
+    class TrasfData:
+        pass
+        
+    trasfData = TrasfData()
+    trasfData.runningStatsMulteplicity = nRunMn
+    trasfData.stationarySeries = statSeries
+    trasfData.trendSeries = trendSeries + trendSeasonality
+    trasfData.trendSeriesNonSeasonal = trendSeries
+    trasfData.stdDevSeries = stdDevSeriesNonSeasonal * seasonalStdDevSeries
+    trasfData.stdDevSeriesNonSeasonal = stdDevSeriesNonSeasonal
+    trasfData.trendNonSeasonalError = trendNonSeasonalError
+    trasfData.stdDevNonSeasonalError = stdDevNonSeasonalError
+    trasfData.trendSeasonalError = trendSeasonalError
+    trasfData.stdDevSeasonalError = stdDevSeasonalError
+    trasfData.trendError = trendError
+    trasfData.stdDevError = stdDevError
+    trasfData.timeStamps = filledTimeStamps
+    trasfData.nonStatSeries = filledSeries
+    trasfData.statSer3Mom = statSer3Mom
+    trasfData.statSer4Mom = statSer4Mom
+    
+    return trasfData
+
+def tsEvaTransformSeriesToStationaryTrendOnly_ciPercentile(timeStamps, series, timeWindow, percentile, **kwargs):
+    """Transforms a series to stationary by removing the trend and normalizing 
+    by a slowly varying percentile (used as a proxy for standard deviation).
+    """
+    print('computing the trend ...')
+    statSeries, trendSeries, filledTimeStamps, filledSeries, nRunMn = tsEvaDetrendTimeSeries(
+        timeStamps, series, timeWindow, **kwargs
+    )
+    
+    print(f'computing the slowly varying {percentile}th percentile ...')
+    # tsEvaNanRunningPercentile function should return the percentile series and its standard error
+    percentileSeries, stdErr = tsEvaNanRunningPercentile(statSeries, nRunMn, percentile, **kwargs)
+    
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=RuntimeWarning)
+        meanPerc = np.nanmean(percentileSeries)
+        # Normalizing to standard deviation (ddof=1 matches MATLAB's default nanstd behavior)
+        stdDev = np.nanstd(statSeries, ddof=1)
+        
+    stdDevSeries = (percentileSeries / meanPerc) * stdDev
+    stdDevError = (stdErr / meanPerc) * stdDev
+    
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=RuntimeWarning)
+        statSeries = statSeries / stdDevSeries
+        
+    _, _, statSer3Mom, statSer4Mom = tsEvaNanRunningStatistics(statSeries, nRunMn)
+    statSer3Mom = tsEvaNanRunningMean(statSer3Mom, int(np.ceil(nRunMn)))
+    statSer4Mom = tsEvaNanRunningMean(statSer4Mom, int(np.ceil(nRunMn)))
+    
+    # N is the size of each sample used to compute the average
+    N = nRunMn
+    
+    # The error on the trend is computed as the error on the average: stdDev/sqrt(N)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=RuntimeWarning)
+        trendError = np.nanmean(stdDevSeries) / np.sqrt(N)
+        
+    # Prepare the output object
+    class TrasfData:
+        pass
+        
+    trasfData = TrasfData()
+    trasfData.runningStatsMulteplicity = nRunMn
+    trasfData.stationarySeries = statSeries
+    trasfData.trendSeries = trendSeries
+    trasfData.trendSeriesNonSeasonal = trendSeries
+    trasfData.trendError = trendError
+    trasfData.stdDevSeries = stdDevSeries
+    trasfData.stdDevSeriesNonSeasonal = stdDevSeries
+    trasfData.stdDevError = stdDevError * np.ones_like(stdDevSeries)
+    trasfData.timeStamps = filledTimeStamps
+    trasfData.nonStatSeries = filledSeries
+    trasfData.statSer3Mom = statSer3Mom
+    trasfData.statSer4Mom = statSer4Mom
+    
+    return trasfData

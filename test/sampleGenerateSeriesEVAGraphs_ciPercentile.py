@@ -3,7 +3,6 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from datetime import datetime
 import matplotlib.dates as mdates
-import scipy.io
 import os
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
