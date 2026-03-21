@@ -5,12 +5,12 @@ import pandas as pd
 import os
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from eva_functions import tsEvaStationary
-from eva_functions import tsEvaGetTimeStep
-from eva_functions import tsEvaComputeReturnLevelsGEVFromAnalysisObj
-from eva_functions import tsEvaComputeReturnLevelsGPDFromAnalysisObj
-from eva_functions import tsEvaPlotReturnLevelsGEVFromAnalysisObj
-from eva_functions import tsEvaPlotReturnLevelsGPDFromAnalysisObj
+from tsEva import tsEvaStationary
+from tsEva import tsEvaGetTimeStep
+from tsEva import tsEvaComputeReturnLevelsGEVFromAnalysisObj
+from tsEva import tsEvaComputeReturnLevelsGPDFromAnalysisObj
+from tsEva import tsEvaPlotReturnLevelsGEVFromAnalysisObj
+from tsEva import tsEvaPlotReturnLevelsGPDFromAnalysisObj
 
 # Load the dataset (assuming it's a CSV file, adjust as needed)
 # Assuming 'timeAndSeriesHebrides.mat' is a CSV file

@@ -6,9 +6,9 @@ import os
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from eva_functions import tsEvaNanRunningPercentile
-from eva_functions import tsEvaRunningMeanTrend
-from eva_functions import datenum_to_datetime
+from tsEva import tsEvaNanRunningPercentile
+from tsEva import tsEvaRunningMeanTrend
+from tsEva import datenum_to_datetime
 
 # this script tests the function for computing of the running percentile
 

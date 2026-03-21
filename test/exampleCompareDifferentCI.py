@@ -8,9 +8,9 @@ import os
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from eva_functions import tsEvaNonStationary
-from eva_functions import tsEvaPlotGEVImageScFromAnalysisObj
-from eva_functions import tsEvaPlotTransfToStatFromAnalysisObj
+from tsEva import tsEvaNonStationary
+from tsEva import tsEvaPlotGEVImageScFromAnalysisObj
+from tsEva import tsEvaPlotTransfToStatFromAnalysisObj
 
 # This example illustrates the fact that the time-varying amplitude of
 # the signal, necessary for the estimation of the extremes using the ts

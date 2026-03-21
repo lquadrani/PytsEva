@@ -19,7 +19,7 @@ import sys
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from eva_functions import (
+from tsEva import (
     tsEvaNonStationary,
     tsEvaPlotSeriesTrendStdDevFromAnalysisObj,
     tsEvaPlotGEVImageScFromAnalysisObj,
@@ -160,8 +160,6 @@ for lx, timeIndex in enumerate([999, len(timeStamps) - 1000]):
 
     rlevGEV, rlevGEVErr = tsEvaComputeReturnLevelsGEVFromAnalysisObj(
         nonStatEvaParams, return_periods, timeIndex=timeIndex)
-    print("  rlevGEV =", rlevGEV)
-    print("  rlevGEVErr =", rlevGEVErr)
     hndl = tsEvaPlotReturnLevelsGEVFromAnalysisObj(
         nonStatEvaParams, timeIndex, ylim=rlRange, maxReturnPeriodYears=200)
     plt.title(f'GEV return levels — {tmstmpref.strftime("%b-%Y")}', fontsize=titleFontSize)

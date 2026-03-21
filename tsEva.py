@@ -4,6 +4,7 @@ import matplotlib.cm as cm
 from scipy.signal import find_peaks
 from scipy.stats import norm, gumbel_r, genpareto
 from scipy.stats import genextreme as gev
+from scipy.optimize import approx_fprime
 import matplotlib.pyplot as plt
 from scipy.interpolate import interp1d
 import matplotlib.dates as mdates
@@ -192,7 +193,155 @@ class Bootstrap_fit:
         standard_errors = np.array(standard_errors)
         return paramEsts, paramCIs, standard_errors
 
-  
+
+class Delta_fit:
+    """
+    Fits GEV, Gumbel, GPD, and GPD (k<=0) distributions using MLE and computes
+    confidence intervals via the delta method (numerical Hessian of the negative
+    log-likelihood, built using scipy.optimize.approx_fprime).
+
+    Drop-in replacement for Bootstrap_fit — identical interface and return value
+    shapes. Much faster and deterministic; may be less accurate for small samples.
+
+    CI percentiles default to [32, 68] (~1-sigma) to match Bootstrap_fit.
+    """
+
+    ci_percentiles = [32, 68]
+
+    def __init__(self, data):
+        self.data = np.asarray(data, dtype=float)
+        p_high = self.ci_percentiles[1]
+        self.z = norm.ppf(p_high / 100.0)
+
+    def _hessian_cov(self, neg_loglik_fn, params):
+        """Numerically estimates the covariance matrix by inverting the Hessian of the NLL."""
+        eps = np.sqrt(np.finfo(float).eps)
+        n = len(params)
+        hess = np.zeros((n, n))
+        for i in range(n):
+            def grad_i(p, _i=i):
+                return approx_fprime(p, neg_loglik_fn, eps)[_i]
+            hess[i, :] = approx_fprime(params, grad_i, eps)
+        hess = (hess + hess.T) / 2.0
+        if np.linalg.cond(hess) > 1e12:
+            import warnings
+            warnings.warn("Hessian ill-conditioned. CIs may be unreliable.")
+        try:
+            return np.linalg.inv(hess)
+        except np.linalg.LinAlgError:
+            return None
+
+    def _cis_from_cov(self, params, cov):
+        std_errors = np.sqrt(np.clip(np.diag(cov), 0, None))
+        return np.vstack((params - self.z * std_errors,
+                          params + self.z * std_errors)).T
+
+    def fit_genextreme(self):
+        data = self.data
+        raw = gev.fit(data, method="MLE", loc=np.mean(data), scale=np.std(data))
+        paramEsts = np.array([-raw[0], raw[1], raw[2]])
+
+        def neg_loglik(params):
+            c, loc, scale = params
+            if scale <= 0:
+                return np.inf
+            ll = np.sum(gev.logpdf(data, c, loc=loc, scale=scale))
+            return -ll if np.isfinite(ll) else np.inf
+
+        cov = self._hessian_cov(neg_loglik, np.array(raw))
+        if cov is not None:
+            # Propagate sign flip on shape: epsilon = -c
+            cov_flipped = cov.copy()
+            cov_flipped[0, 1:] = -cov_flipped[0, 1:]
+            cov_flipped[1:, 0] = -cov_flipped[1:, 0]
+            paramCIs = self._cis_from_cov(paramEsts, cov_flipped)
+        else:
+            paramCIs = np.full((3, 2), np.nan)
+        return paramEsts, paramCIs
+
+    def fit_gumbel(self):
+        data = self.data
+        paramEsts = np.array(gumbel_r.fit(data))
+
+        def neg_loglik(params):
+            loc, scale = params
+            if scale <= 0:
+                return np.inf
+            ll = np.sum(gumbel_r.logpdf(data, loc=loc, scale=scale))
+            return -ll if np.isfinite(ll) else np.inf
+
+        cov = self._hessian_cov(neg_loglik, paramEsts)
+        paramCIs = self._cis_from_cov(paramEsts, cov) if cov is not None else np.full((2, 2), np.nan)
+        return paramEsts, paramCIs
+
+    def fit_genpareto(self):
+        data = self.data
+        m1, m2 = np.mean(data), np.var(data)
+        k0 = 0.5 * (1.0 - m1**2 / m2)
+        s0 = 0.5 * m1 * (1.0 + m1**2 / m2)
+        paramEsts = np.array(genpareto.fit(data, k0, floc=0, scale=s0))
+
+        # loc is fixed at 0 — Hessian over (c, scale) only
+        def neg_loglik(params_2d):
+            c, scale = params_2d
+            if scale <= 0:
+                return np.inf
+            ll = np.sum(genpareto.logpdf(data, c, loc=0, scale=scale))
+            return -ll if np.isfinite(ll) else np.inf
+
+        cov_2d = self._hessian_cov(neg_loglik, paramEsts[[0, 2]])
+        if cov_2d is not None:
+            cov = np.zeros((3, 3))
+            cov[np.ix_([0, 2], [0, 2])] = cov_2d
+            paramCIs_full = self._cis_from_cov(paramEsts, cov)
+            paramCIs = np.vstack((paramCIs_full[:, 0], paramCIs_full[:, 1]))
+            standard_errors = np.sqrt(np.clip(np.diag(cov), 0, None))
+        else:
+            paramCIs = np.full((2, 3), np.nan)
+            standard_errors = np.full(3, np.nan)
+        return paramEsts, paramCIs, standard_errors
+
+    def fit_genpareto_neg_shape(self):
+        """Fit GPD with shape constrained to k <= 0, with delta-method CIs."""
+        from scipy.optimize import minimize
+        data = self.data
+        m1, m2 = np.mean(data), np.var(data)
+        k0 = min(-0.1, 0.5 * (1.0 - m1**2 / m2))
+        s0 = 0.5 * m1 * (1.0 + m1**2 / m2)
+        if s0 <= 0:
+            s0 = np.std(data) / np.sqrt(2)
+
+        def _neg_loglik_2d(params):
+            c, scale = params
+            if scale <= 0:
+                return np.inf
+            lp = genpareto.logpdf(data, c, loc=0, scale=scale)
+            if not np.all(np.isfinite(lp)):
+                return np.inf
+            return -np.sum(lp)
+
+        res = minimize(_neg_loglik_2d, [k0, s0],
+                       bounds=[(-np.inf, 0), (1e-10, np.inf)],
+                       method='L-BFGS-B')
+        if res.success or np.isfinite(res.fun):
+            paramEsts = np.array([res.x[0], 0.0, res.x[1]])
+        else:
+            paramEsts = np.array(genpareto.fit(data, k0, floc=0, scale=s0))
+
+        # Hessian over (c, scale) only, at the constrained MLE
+        cov_2d = self._hessian_cov(_neg_loglik_2d, paramEsts[[0, 2]])
+        if cov_2d is not None:
+            cov = np.zeros((3, 3))
+            cov[np.ix_([0, 2], [0, 2])] = cov_2d
+            paramCIs_full = self._cis_from_cov(paramEsts, cov)
+            paramCIs = np.vstack((paramCIs_full[:, 0], paramCIs_full[:, 1]))
+            standard_errors = np.sqrt(np.clip(np.diag(cov), 0, None))
+        else:
+            paramCIs = np.full((2, 3), np.nan)
+            standard_errors = np.full(3, np.nan)
+        return paramEsts, paramCIs, standard_errors
+
+
 class ProbObject:
     def __init__(self, subsrs, percent_m, percent, percent_p):
         valid_data = subsrs[~np.isnan(subsrs)]
@@ -2304,6 +2453,61 @@ def tsEvaTransformSeriesToStationaryMultiplicativeSeasonality(timeStamps, series
     return trasfData
 
 def tsEvaNonStationary(timeAndSeries, timeWindow, **kwargs):
+    """
+    Performs the TS-EVA non-stationary extreme value analysis (Mentaschi et al. 2016).
+
+    Parameters
+    ----------
+    timeAndSeries : ndarray, shape (n, 2)
+        Column 0: time stamps (ordinal days). Column 1: values.
+    timeWindow : float
+        Time window for the stationarity transformation, expressed in days.
+
+    Keyword arguments
+    -----------------
+    Transformation
+    ~~~~~~~~~~~~~~
+    transfType : str, default 'trend'
+        Stationarity transformation type. One of:
+          'trend'               - long-term trend via running mean; CI via running std dev.
+          'seasonal'            - long-term + seasonal variability (multiplicative).
+          'trendlinear'         - linear trend fit; CI via linear fit of a percentile.
+                                  Requires ciPercentile.
+          'trendCIPercentile'   - running-mean trend; CI via running percentile.
+                                  Requires ciPercentile.
+          'seasonalCIPercentile'- seasonal transformation; CI via running percentile.
+                                  Requires ciPercentile.
+    ciPercentile : float
+        Percentile (0-100) used as the running confidence interval for
+        'trendlinear', 'trendCIPercentile', and 'seasonalCIPercentile'.
+        Mandatory for those transfTypes.
+
+    POT sampling
+    ~~~~~~~~~~~~
+    minPeakDistanceInDays : float  [MANDATORY]
+        Minimum distance between two peaks-over-threshold events, in days.
+    potEventsPerYear : float, default 5
+        Target average number of POT events per year (used to select threshold).
+    potPercentiles : list of float, default [97, 97.5, 98, 98.5, 99]
+        Candidate threshold percentiles scanned to match potEventsPerYear.
+        Forwarded to tsEvaSampleData -> tsGetPOT.
+
+    EVA fitting
+    ~~~~~~~~~~~
+    evdType : list of str, default ['GEV', 'GPD']
+        Extreme value distributions to fit. Subset of ['GEV', 'GPD'].
+    gevType : str, default 'GEV'
+        GEV variant: 'GEV' (full GEV) or 'Gumbel' (shape fixed at 0).
+    gevMaxima : str
+        Block maxima type: 'annual' or 'monthly'. Set automatically from
+        transfType; override only if needed.
+    gpdType : str, default 'GPDNegShape'
+        GPD fitting mode: 'GPD' (unconstrained) or 'GPDNegShape' (shape <= 0).
+    eva_fit_class : class, default Delta_fit
+        Class used to fit distributions and compute CIs. Must expose the same
+        interface as Delta_fit / Bootstrap_fit (fit_genextreme, fit_gumbel,
+        fit_genpareto, fit_genpareto_neg_shape). Forwarded to tsEVstatistics.
+    """
 
     transfType = kwargs.get('transfType', 'trend')
     minPeakDistanceInDays = kwargs.get('minPeakDistanceInDays', -1)
@@ -2312,6 +2516,7 @@ def tsEvaNonStationary(timeAndSeries, timeWindow, **kwargs):
     evdType = kwargs.get('evdType', ['GEV', 'GPD'])
     gevType = kwargs.get('gevType', 'GEV')  # can be 'GEV' or 'Gumbel'
     gpdType = kwargs.get('gpdType', 'GPDNegShape')  # can be 'GPD' or 'GPDNegShape'
+    # eva_fit_class is forwarded via **kwargs to tsEVstatistics
     
     for key, value in kwargs.items():
         if (key == 'transfType'): 
@@ -2540,6 +2745,7 @@ def tsEvaStationary(time_and_series, **kwargs):
     doSampleData=kwargs.get('doSampleData',True)
     potThreshold=kwargs.get('potThreshold',np.nan)
     evdType=kwargs.get('evdType',['GEV', 'GPD'])
+    # eva_fit_class is forwarded via **kwargs to tsEVstatistics
     
     # Parse the named arguments (you can replace with your argument parser)
     for key, value in kwargs.items():
@@ -2684,6 +2890,7 @@ def tsEVstatistics(pointData, **kwargs):
     gevType=kwargs.get('gevType','GEV')
     gpdType=kwargs.get('gpdType','GPDNegShape')  # can be 'GPD' or 'GPDNegShape'
     evdType=kwargs.get('evdType',['GEV', 'GPD'])
+    eva_fit_class=kwargs.get('eva_fit_class', Delta_fit)
 
     for key, value in kwargs.items():
         if (key=='alphaCI'): 
@@ -2696,6 +2903,8 @@ def tsEVstatistics(pointData, **kwargs):
             gpdType=value
         if (key=='evdType'): 
             evdType=value
+        if (key=='eva_fit_class'):
+            eva_fit_class=value
         
 
     # Define Tr vector
@@ -2728,7 +2937,7 @@ def tsEVstatistics(pointData, **kwargs):
                 # Try to fit GEV with bounded shape parameters and stderr, reduces the constraints if no fit.
                 try:
 #                    fit  = gev.fit(tmp, method="MLE",loc=np.mean(tmp),scale=np.std(tmp))
-                    gev_instance = Bootstrap_fit(tmp)
+                    gev_instance = eva_fit_class(tmp)
 #                    params,gev_confidence_interval = gev_instance.fit_genextreme()
                     params,paramCL = gev_instance.fit_genextreme()
                     paramEsts = {'epsilon': params[0], 'mu': params[1], 'sigma': params[2]}
@@ -2741,7 +2950,7 @@ def tsEVstatistics(pointData, **kwargs):
                     print("Not able to fit GEV stderr")
                         
             elif gevType == "Gumbel":
-                gumbel_instance = Bootstrap_fit(tmp)
+                gumbel_instance = eva_fit_class(tmp)
                 params,paramCL = gumbel_instance.fit_gumbel()
 
                 paramEsts = {'epsilon': 0, 'mu': params[0], 'sigma': params[1]}
@@ -2779,7 +2988,7 @@ def tsEVstatistics(pointData, **kwargs):
         # Perform GPD fitting and computation of return levels
         ik = 1
         d1 = pointData['POT']['peaks']-pointData['POT']['threshold']
-        gpd_instance = Bootstrap_fit(d1)
+        gpd_instance = eva_fit_class(d1)
         if gpdType == 'GPDNegShape':
             paramEsts,paramCIs,se = gpd_instance.fit_genpareto_neg_shape()
         else:

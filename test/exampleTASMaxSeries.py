@@ -6,12 +6,12 @@ import os
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from eva_functions import tsEvaComputeReturnLevelsGEVFromAnalysisObj
-from eva_functions import tsEvaNonStationary
-from eva_functions import tsEvaPlotSeriesTrendStdDevFromAnalysisObj
-from eva_functions import datetime_to_datenum
-from eva_functions import tsEvaPlotGEVImageScFromAnalysisObj
-from eva_functions import tsEvaPlotReturnLevelsGEVFromAnalysisObj
+from tsEva import tsEvaComputeReturnLevelsGEVFromAnalysisObj
+from tsEva import tsEvaNonStationary
+from tsEva import tsEvaPlotSeriesTrendStdDevFromAnalysisObj
+from tsEva import datetime_to_datenum
+from tsEva import tsEvaPlotGEVImageScFromAnalysisObj
+from tsEva import tsEvaPlotReturnLevelsGEVFromAnalysisObj
 
 # A series of TAS (Temperature of Air Surface) yerly maxima is useful to understand how heat waves evolve (Alessandro Dosio, jrc).
 # It is a series of yearly maxima, therefore it is fit for a GEV analysis, while a GPD analysis is meaningless.

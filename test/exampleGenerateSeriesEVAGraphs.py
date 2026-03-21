@@ -7,14 +7,14 @@ import scipy.io
 import os
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from eva_functions import tsEvaNonStationary
-from eva_functions import tsEvaPlotSeriesTrendStdDevFromAnalysisObj
-from eva_functions import tsEvaPlotGEVImageScFromAnalysisObj
-from eva_functions import tsEvaPlotGPDImageScFromAnalysisObj
-from eva_functions import tsEvaPlotReturnLevelsGEVFromAnalysisObj
-from eva_functions import tsEvaPlotReturnLevelsGPDFromAnalysisObj
-from eva_functions import tsEvaPlotTransfToStatFromAnalysisObj
-from eva_functions import tsEvaPlotGEV3DFromAnalysisObj
+from tsEva import tsEvaNonStationary
+from tsEva import tsEvaPlotSeriesTrendStdDevFromAnalysisObj
+from tsEva import tsEvaPlotGEVImageScFromAnalysisObj
+from tsEva import tsEvaPlotGPDImageScFromAnalysisObj
+from tsEva import tsEvaPlotReturnLevelsGEVFromAnalysisObj
+from tsEva import tsEvaPlotReturnLevelsGPDFromAnalysisObj
+from tsEva import tsEvaPlotTransfToStatFromAnalysisObj
+from tsEva import tsEvaPlotGEV3DFromAnalysisObj
 
 def datetime_to_datenum(dt):
     ord_num = dt.toordinal()
