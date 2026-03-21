@@ -5,9 +5,9 @@ import os
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from eva_functions import tsEvaComputeReturnLevelsGPDFromAnalysisObj
-from eva_functions import tsEvaNonStationary
-from eva_functions import tsEvaPlotSeriesTrendStdDevFromAnalysisObj
+from tsEva import tsEvaComputeReturnLevelsGPDFromAnalysisObj
+from tsEva import tsEvaNonStationary
+from tsEva import tsEvaPlotSeriesTrendStdDevFromAnalysisObj
 
 # In a SPI (Standardized Precipitation Index) series peaks are distant at least 5 month one
 # from the other. Therefore the concept of "5 peaks over threshold per year" is meaningless.

@@ -3,21 +3,20 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from datetime import datetime
 import matplotlib.dates as mdates
-import scipy.io
 import os
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from eva_functions import tsEvaComputeReturnLevelsGEVFromAnalysisObj
-from eva_functions import tsEvaComputeReturnLevelsGPDFromAnalysisObj
-from eva_functions import tsEvaNonStationary
-from eva_functions import tsEvaPlotSeriesTrendStdDevFromAnalysisObj
-from eva_functions import tsEvaPlotGEVImageScFromAnalysisObj
-from eva_functions import tsEvaPlotGPDImageScFromAnalysisObj
-from eva_functions import tsEvaPlotReturnLevelsGEVFromAnalysisObj
-from eva_functions import tsEvaPlotReturnLevelsGPDFromAnalysisObj
-from eva_functions import tsEvaPlotTransfToStatFromAnalysisObj
-from eva_functions import tsEvaPlotGEV3DFromAnalysisObj
-from eva_functions import datetime_to_datenum
+from tsEva import tsEvaComputeReturnLevelsGEVFromAnalysisObj
+from tsEva import tsEvaComputeReturnLevelsGPDFromAnalysisObj
+from tsEva import tsEvaNonStationary
+from tsEva import tsEvaPlotSeriesTrendStdDevFromAnalysisObj
+from tsEva import tsEvaPlotGEVImageScFromAnalysisObj
+from tsEva import tsEvaPlotGPDImageScFromAnalysisObj
+from tsEva import tsEvaPlotReturnLevelsGEVFromAnalysisObj
+from tsEva import tsEvaPlotReturnLevelsGPDFromAnalysisObj
+from tsEva import tsEvaPlotTransfToStatFromAnalysisObj
+from tsEva import tsEvaPlotGEV3DFromAnalysisObj
+from tsEva import datetime_to_datenum
 
 
 # this sample script illustrates how to execute the tsEva to estimate the
