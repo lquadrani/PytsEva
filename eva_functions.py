@@ -135,6 +135,63 @@ class Bootstrap_fit:
         # Return full-data MLE as point estimate; bootstrap is used only for CIs
         return paramEsts, paramCIs, standard_errors
 
+    def fit_genpareto_neg_shape(self):
+        """Fit GPD with shape constrained to k <= 0, matching MATLAB tsGpdNegShapeFit."""
+        from scipy.optimize import minimize
+        bootstrap_params = []
+        percentiles = [32, 68]
+
+        def _neg_loglik(params, data):
+            c, scale = params
+            if scale <= 0:
+                return np.inf
+            lp = genpareto.logpdf(data, c, loc=0, scale=scale)
+            if not np.all(np.isfinite(lp)):
+                return np.inf
+            return -np.sum(lp)
+
+        # MoM starting values (MATLAB-style), capped at -0.1 to stay in k <= 0 region
+        m1 = np.mean(self.data)
+        m2 = np.var(self.data)
+        k0 = min(-0.1, 0.5 * (1.0 - m1**2 / m2))
+        s0 = 0.5 * m1 * (1.0 + m1**2 / m2)
+        if s0 <= 0:
+            s0 = np.std(self.data) / np.sqrt(2)
+
+        res = minimize(_neg_loglik, [k0, s0], args=(self.data,),
+                       bounds=[(-np.inf, 0), (1e-10, np.inf)],
+                       method='L-BFGS-B')
+        if res.success or np.isfinite(res.fun):
+            paramEsts = (res.x[0], 0.0, res.x[1])  # (shape, loc=0, scale)
+        else:
+            # Fallback to unconstrained MoM-seeded fit
+            paramEsts = genpareto.fit(self.data, k0, floc=0, scale=s0)
+
+        for j in range(self.n_bootstraps):
+            sample = np.random.choice(self.data, size=len(self.data), replace=True)
+            try:
+                res_bs = minimize(_neg_loglik, [paramEsts[0], paramEsts[2]], args=(sample,),
+                                  bounds=[(-np.inf, 0), (1e-10, np.inf)],
+                                  method='L-BFGS-B')
+                if res_bs.success or np.isfinite(res_bs.fun):
+                    bootstrap_params.append((res_bs.x[0], 0.0, res_bs.x[1]))
+            except Exception as e:
+                print(f"Bootstrap sample {j} failed: {e}")
+                continue
+
+        bootstrap_params = np.array(bootstrap_params)
+        ci_lower = np.percentile(bootstrap_params, percentiles[0], axis=0)
+        ci_upper = np.percentile(bootstrap_params, percentiles[1], axis=0)
+        paramCIs = np.vstack((ci_lower, ci_upper))
+
+        Z_alpha_half = 1.96
+        standard_errors = []
+        for ci in paramCIs.T:
+            SE = (ci[1] - ci[0]) / (2 * Z_alpha_half)
+            standard_errors.append(SE)
+        standard_errors = np.array(standard_errors)
+        return paramEsts, paramCIs, standard_errors
+
   
 class ProbObject:
     def __init__(self, subsrs, percent_m, percent, percent_p):
@@ -2144,6 +2201,7 @@ def tsEvaNonStationary(timeAndSeries, timeWindow, **kwargs):
     potEventsPerYear = kwargs.get('potEventsPerYear', 5)
     evdType = kwargs.get('evdType', ['GEV', 'GPD'])
     gevType = kwargs.get('gevType', 'GEV')  # can be 'GEV' or 'Gumbel'
+    gpdType = kwargs.get('gpdType', 'GPDNegShape')  # can be 'GPD' or 'GPDNegShape'
     
     for key, value in kwargs.items():
         if (key == 'transfType'): 
@@ -2154,6 +2212,8 @@ def tsEvaNonStationary(timeAndSeries, timeWindow, **kwargs):
             evdType = value
         if (key == 'gevType'): 
             gevType = value
+        if (key == 'gpdType'): 
+            gpdType = value
         if (key == 'potEventsPerYear'): 
             potEventsPerYear = value
         if (key == 'ciPercentile'): 
@@ -2221,7 +2281,7 @@ def tsEvaNonStationary(timeAndSeries, timeWindow, **kwargs):
     print("Executing stationary EVA")
     pointData = tsEvaSampleData(ms, meanEventsPerYear=potEventsPerYear, **kwargs)
     alphaCi = 0.68
-    _, eva, is_valid = tsEVstatistics(pointData, alphaci=alphaCi, gevMaxima=gevMaxima, gevType=gevType, evdType=evdType, tail=None)
+    _, eva, is_valid = tsEVstatistics(pointData, alphaci=alphaCi, gevMaxima=gevMaxima, gevType=gevType, gpdType=gpdType, evdType=evdType, tail=None)
     
     if not is_valid:
         return None, None, False
@@ -2363,6 +2423,7 @@ def tsEvaStationary(time_and_series, **kwargs):
     potEventsPerYear=kwargs.get('potEventsPerYear',5)
     gevMaxima=kwargs.get('gevMaxima','annual')
     gevType=kwargs.get('gevType','GEV')  # can be 'GEV' or 'Gumbel'
+    gpdType=kwargs.get('gpdType','GPDNegShape')  # can be 'GPD' or 'GPDNegShape'
     doSampleData=kwargs.get('doSampleData',True)
     potThreshold=kwargs.get('potThreshold',np.nan)
     evdType=kwargs.get('evdType',['GEV', 'GPD'])
@@ -2377,6 +2438,8 @@ def tsEvaStationary(time_and_series, **kwargs):
             gevMaxima=value
         if (key=='gevType'): 
             gevType=value
+        if (key=='gpdType'): 
+            gpdType=value
         if (key=='doSampleData'): 
             doSampleData=value
         if (key=='potThreshold'): 
@@ -2407,7 +2470,7 @@ def tsEvaStationary(time_and_series, **kwargs):
     
     # Call to tsEVstatistics for GEV fitting
     evaAlphaCI = 0.68  # Approximation of 68% confidence interval
-    EVmeta, EVdata, isValid = tsEVstatistics(pointData, alphaCI=evaAlphaCI, gevMaxima=gevMaxima, gevType=gevType, evdType=evdType)
+    EVmeta, EVdata, isValid = tsEVstatistics(pointData, alphaCI=evaAlphaCI, gevMaxima=gevMaxima, gevType=gevType, gpdType=gpdType, evdType=evdType)
     if not isValid:
         return None, False
     
@@ -2506,6 +2569,7 @@ def tsEVstatistics(pointData, **kwargs):
     alphaCI=kwargs.get('alphaCI',0.95)
     gevMaxima=kwargs.get('gevMaxima','annual')
     gevType=kwargs.get('gevType','GEV')
+    gpdType=kwargs.get('gpdType','GPDNegShape')  # can be 'GPD' or 'GPDNegShape'
     evdType=kwargs.get('evdType',['GEV', 'GPD'])
 
     for key, value in kwargs.items():
@@ -2515,6 +2579,8 @@ def tsEVstatistics(pointData, **kwargs):
             gevMaxima=value
         if (key=='gevType'): 
             gevType=value
+        if (key=='gpdType'): 
+            gpdType=value
         if (key=='evdType'): 
             evdType=value
         
@@ -2601,7 +2667,10 @@ def tsEVstatistics(pointData, **kwargs):
         ik = 1
         d1 = pointData['POT']['peaks']-pointData['POT']['threshold']
         gpd_instance = Bootstrap_fit(d1)
-        paramEsts,paramCIs,se = gpd_instance.fit_genpareto()
+        if gpdType == 'GPDNegShape':
+            paramEsts,paramCIs,se = gpd_instance.fit_genpareto_neg_shape()
+        else:
+            paramEsts,paramCIs,se = gpd_instance.fit_genpareto()
         alphaCIx = 1 - alphaCI
 
         ksi = paramEsts[0] # shape
