@@ -1,3 +1,8 @@
+
+# =============================================================================
+# STATISTICAL CORE
+# =============================================================================
+
 import numpy as np
 import pandas as pd
 import matplotlib.cm as cm
@@ -5,11 +10,11 @@ from scipy.signal import find_peaks
 from scipy.stats import norm, gumbel_r, genpareto
 from scipy.stats import genextreme as gev
 from scipy.optimize import approx_fprime
-import matplotlib.pyplot as plt
 from scipy.interpolate import interp1d
-import matplotlib.dates as mdates
 from datetime import datetime, timedelta
 import warnings
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 
 
 def datetime_to_datenum(dt):
@@ -409,693 +414,6 @@ class ProbObject:
         return np.nan
 
 
-def tsEvaPlotTransfToStat(timeStamps, statSeries, srsmean, stdDev, thirdMom, fourthMom, **kwargs):
-    axisFontSize=kwargs.get('axisFontSize', 20)
-    legendFontSize=kwargs.get('legendFontSize', 20)
-    xtick=kwargs.get('xtick',[])
-    figPosition=kwargs.get('figPosition',[x + 10 for x in [0, 0, 1450, 700]])
-    minyear=kwargs.get('minyear',1)
-    maxyear=kwargs.get('maxyear',9999)
-    dateformat=kwargs.get('dateformat','%Y')
-    legendLocation=kwargs.get('legendLocation','upper right')
-    ylim=kwargs.get('ylim',None)
-
-    # Update args with passed values
-    for key, value in kwargs.items():
-        if (key=='axisFontSize'):
-            axisFontSize=value
-        if (key=='legendFontSize'):
-            legendFontSize=value
-        if (key=='xtick'):
-            xtick=value
-        if (key=='figPosition'):
-            figPosition=value
-        if (key=='minyear'):
-            minyear=value
-        if (key=='maxyear'):
-            maxyear=value
-        if (key=='dateformat'):
-            dateformat=value
-        if (key=='legendLocation'):
-            legendLocation=value
-        if (key=='ylim'): 
-            ylim=value
-
-
-    min_date=datetime(minyear, 1, 1)
-    max_date=datetime(maxyear, 1, 1)
-    minTS=min_date.toordinal()
-    maxTS=max_date.toordinal()
-
-    filtered_statSeries = statSeries[(timeStamps >= minTS) & (timeStamps <= maxTS)]
-    filtered_srsmean = srsmean[(timeStamps >= minTS) & (timeStamps <= maxTS)]
-    filtered_stdDev = stdDev[(timeStamps >= minTS) & (timeStamps <= maxTS)]
-    filtered_thirdMom = thirdMom[(timeStamps >= minTS) & (timeStamps <= maxTS)]
-    filtered_fourthMom = fourthMom[(timeStamps >= minTS) & (timeStamps <= maxTS)]
-    filtered_timeStamps = timeStamps[(timeStamps >= minTS) & (timeStamps <= maxTS)]
-
-    minTS = min(filtered_timeStamps);
-    maxTS = max(filtered_timeStamps);
-
-    fig, ax = plt.subplots(figsize=(figPosition[2] / 100,figPosition[3] / 100))
-    phandles = [fig]
-    
-
-    ax.plot(filtered_timeStamps, filtered_statSeries, label='Normalized series', zorder=1)
-    ax.plot(filtered_timeStamps, filtered_srsmean, "--", color="k", linewidth=3, label='Mean', zorder=2)
-    ax.plot(filtered_timeStamps, filtered_stdDev, "--", color=[0.5, 0, 0], linewidth=3, label='Std. dev.', zorder=2)
-    ax.plot(filtered_timeStamps, filtered_thirdMom, color=[0, 0, 0.5], linewidth=3,label='Skewness', zorder=2)
-    ax.plot(filtered_timeStamps, filtered_fourthMom, color=[0, 0.4, 0], linewidth=3,label='Kurtosis',zorder=2)
-    ax.xaxis.set_major_formatter(mdates.DateFormatter(dateformat))
-    
-    ax.legend([ax.lines[0], ax.lines[1], ax.lines[2], ax.lines[3], ax.lines[4]], ['Normalized series', 'Mean', 'Std dev', 'Skewness', 'Kurtosis'],
-              fontsize=legendFontSize, loc=legendLocation)
-    ax.tick_params(labelsize=axisFontSize)
-
-    if xtick:
-        ax.set_xticks(xtick)
-        ax.set_xticklabels([datetime.fromordinal(int(t)).strftime(dateformat) for t in xtick])
-
-    ax.set_xlim([minTS,maxTS])
-    # Turn grid on
-    ax.grid(True)
-#    plt.tight_layout()
-
-    if ylim is not None:
-        ax.set_ylim(ylim) 
-    else:
-        all_data = np.concatenate([filtered_statSeries, filtered_srsmean, filtered_stdDev, filtered_thirdMom, filtered_fourthMom])
-        data_min = np.nanmin(all_data)
-        data_max = np.nanmax(all_data)
-        y_margin = 0.1 * (data_max - data_min)
-        ax.set_ylim([data_min - y_margin, data_max + y_margin])
-
-
-    phandles = {
-        'fig': fig,
-        'ax': ax,
-        'normalized_series': ax.lines[0],  # first line
-        'mean': ax.lines[1],  # second line plot
-        'std_dev': ax.lines[2],  # third line plot
-        'skewness': ax.lines[3],  # fourth line plot
-        'kurtosis': ax.lines[4],  # fifth line plot
-    }
-    return phandles
-
-def tsEvaPlotTransfToStatFromAnalysisObj(nonStationaryEvaParams, stationaryTransformData, **kwargs):
-    timeStamps = stationaryTransformData.timeStamps
-    series = stationaryTransformData.stationarySeries
-    srmean = np.zeros_like(series)
-    srstddev = np.ones_like(series)
-    st3mom = stationaryTransformData.statSer3Mom
-    st4mom = stationaryTransformData.statSer4Mom
-    
-    minyear = kwargs.get('minyear',1)
-    maxyear = kwargs.get('maxyear',9999)
-    dateFormat = kwargs.get('dateformat','%Y')
-    ylim = kwargs.get('ylim',None)
-
-    for key, value in kwargs.items():
-        if (key=='minyear'):
-            minyear=value
-        if (key=='maxyear'):
-            maxyear=value
-        if (key=='dateformat'):
-            dateformat=value
-        if (key=='ylim'): 
-            ylim=value
-
-    phandles = tsEvaPlotTransfToStat(timeStamps, series, srmean, srstddev, st3mom, st4mom, **kwargs)
-    return phandles
-
-def tsEvaPlotGEVImageSc(Y, timeStamps, epsilon, sigma, mu, **kwargs):
-    avgYearLength = 365.2425
-    nyears = (max(timeStamps) - min(timeStamps)) / avgYearLength
-    nelmPerYear = len(timeStamps) / nyears
-
-    # Default arguments
-    
-    nPlottedTimesByYear=kwargs.get('nPlottedTimesByYear',min(360, round(nelmPerYear)))
-    ylabel=kwargs.get('ylabel','levels (m)')
-    zlabel=kwargs.get('zlabel','pdf')
-    minYear=kwargs.get('minYear',1)
-    maxYear=kwargs.get('maxYear',9999)
-    dateformat=kwargs.get('dateformat','%Y')
-    axisFontSize=kwargs.get('axisFontSize',22)
-    labelFontSize=kwargs.get('labelFontSize',28)
-    colormap=kwargs.get('colormap', plt.cm.hot_r)
-    plotColorbar=kwargs.get('plotColorbar',True)
-    figPosition=kwargs.get('figPosition',[x + 10 for x in [0, 0, 1450, 700]])
-    xtick=kwargs.get('xtick',[])
-    ax=kwargs.get('ax',None)
-    
-    # Update args with passed values
-    for key, value in kwargs.items():
-        if (key=='nPlottedTimesByYear'):
-            nPlottedTimesByYear=value
-        if (key=='ylabel'):
-            ylabel=value
-        if (key=='zlabel'):
-            zlabel=value
-        if (key=='minYear'):
-            minYear=value
-        if (key=='maxYear'):
-            maxYear=value
-        if (key=='dateformat'):
-            dateformat=value
-        if (key=='axisFontSize'):
-            axisFontSize=value
-        if (key=='labelFontSize'):
-            labelFontSize=value
-        if (key=='colormap'):
-            colormap=value
-        if (key=='plotColorbar'):
-            plotColorbar=value
-        if (key=='figPosition'):
-            figPosition=value
-        if (key=='xtick'):
-            xtick=value
-        if (key=='ax'):
-            ax=value
-
-    min_date=datetime(minYear, 1, 1)
-    max_date=datetime(maxYear, 1, 1)
-    minTS=min_date.toordinal()
-    maxTS=max_date.toordinal()
-
-    sigma = sigma[(timeStamps >= minTS) & (timeStamps <= maxTS)]
-    mu = mu[(timeStamps >= minTS) & (timeStamps <= maxTS)]
-    timeStamps = timeStamps[(timeStamps >= minTS) & (timeStamps <= maxTS)]
-
-
-    # Handle figure and axes
-    if ax is None:
-        fig, ax = plt.subplots(figsize=(figPosition[2]/100, figPosition[3]/100))
-        phandles = [fig]
-    else:
-        phandles = [ax]
-
-    # Setup time range
-    L = len(timeStamps)
-    minTS = timeStamps[0]
-    maxTS = timeStamps[-1]
-    
-    npdf = int(np.ceil(((maxTS - minTS) / avgYearLength) * nPlottedTimesByYear))
-    navg = int(np.ceil(L / npdf))
-
-    plotSLength = npdf * navg
-    timeStamps_plot = np.linspace(minTS, maxTS, plotSLength)
-
-    # Handle epsilon values
-    if isinstance(epsilon, (list, np.ndarray)):
-        if len(epsilon) == 1:
-            epsilon0 = np.ones(npdf) * epsilon
-    else:
-        epsilon_ = np.full(npdf * navg, np.nan)
-        epsilon_[:L] = epsilon
-        epsilonMtx = epsilon_.reshape(navg, -1)
-        epsilon0 = np.nanmean(epsilonMtx, axis=0).T
-
-    # Interpolation for sigma and mu
-    sigma_ = np.interp(timeStamps_plot, timeStamps, sigma)
-    sigmaMtx = sigma_.reshape(-1, navg)
-
-    if sigmaMtx.shape[0] > 1:
-        sigma0 = np.nanmean(sigmaMtx, axis=1)
-        sigma0 = sigma0.T
-    else:
-        sigma0 = np.transpose(sigmaMtx)
-    
-    mu_ = np.interp(timeStamps_plot, timeStamps, mu)
-    muMtx = mu_.reshape(-1, navg)
-    if muMtx.shape[0] > 1:
-        mu0 = np.nanmean(muMtx, axis=1)
-        mu0 = mu0.T  # Transpose
-    else:
-        mu0 = muMtx.T
-
-    # Create grid for GEV parameters
-    X_mesh, epsilonMtx = np.meshgrid(Y, epsilon0)
-    _, sigmaMtx = np.meshgrid(Y, sigma0)
-    XMtx, muMtx = np.meshgrid(Y, mu0)
-    
-    # Compute the GEV PDF
-    gevvar = gev.pdf(XMtx, c=epsilonMtx, loc=muMtx, scale=sigmaMtx)
-    
-    # Plotting
-    gevvar_transposed = gevvar.T
-    
-    cax = ax.imshow(gevvar_transposed, aspect='auto', origin='lower', extent=[timeStamps_plot[0], timeStamps_plot[-1], Y[0], Y[-1]])
-    phandles.append(cax)
-
-
-    # Formatting the axes
-    ax.set_xlabel('Year', fontsize=labelFontSize)
-    ax.set_ylabel(ylabel, fontsize=labelFontSize)
-    ax.tick_params(axis='both', labelsize=axisFontSize)
-
-    # Date formatting
-    ax.xaxis.set_major_formatter(plt.matplotlib.dates.DateFormatter(dateformat))
-    ax.grid(True)
-
-    # Adjust xticks if provided
-    if xtick:
-        ax.set_xticks(xtick)
-        ax.set_xticklabels([datetime.fromordinal(int(t)).strftime(dateformat) for t in xtick])
-    
-    ax.set_xlim([minTS,maxTS])
-
-    # Colorbar
-    if plotColorbar:
-        cbar = fig.colorbar(cax, ax=ax)
-        cbar.set_label(zlabel, fontsize=labelFontSize)
-
-    return phandles
-
-def tsEvaPlotGPDImageSc(Y, timeStamps, epsilon, sigma, threshold, **kwargs):
-    avgYearLength = 365.2425
-    nyears = (max(timeStamps) - min(timeStamps)) / avgYearLength
-    nelmPerYear = len(timeStamps) / nyears
-
-    # Default arguments
-    
-    nPlottedTimesByYear = kwargs.get('nPlottedTimesByYear',min(360, round(nelmPerYear)))
-    ylabel = kwargs.get('ylabel','levels (m)')
-    zlabel = kwargs.get('zlabel','pdf')
-    minYear = kwargs.get('minYear',1)
-    maxYear = kwargs.get('maxYear',9999)
-    dateFormat = kwargs.get('dateformat','%Y')
-    axisFontSize = kwargs.get('axisFontSize',22)
-    colormap=kwargs.get('colormap', plt.cm.hot_r)
-    plotColorbar=kwargs.get('plotColorbar',True)
-    labelFontSize = kwargs.get('labelFontSize',28)
-    figPosition = kwargs.get('figPosition',[x + 10 for x in [0, 0, 1450, 700]])
-    xtick = kwargs.get('xtick',[])
-    ax=kwargs.get('ax',None)
-    
-    for key, value in kwargs.items():
-        if (key=='nPlottedTimesByYear'):
-            nPlottedTimesByYear=value
-        if (key=='ylabel'):
-            ylabel=value
-        if (key=='zlabel'):
-            zlabel=value
-        if (key=='minYear'):
-            minYear=value
-        if (key=='maxYear'):
-            maxYear=value
-        if (key=='dateformat'):
-            dateformat=value
-        if (key=='axisFontSize'):
-            axisFontSize=value
-        if (key=='labelFontSize'):
-            labelFontSize=value
-        if (key=='colormap'):
-            colormap=value
-        if (key=='plotColorbar'):
-            plotColorbar=value
-        if (key=='figPosition'):
-            figPosition=value
-        if (key=='xtick'):
-            xtick=value
-        if (key=='ax'):
-            ax=value
-
-    min_date=datetime(minYear, 1, 1)
-    max_date=datetime(maxYear, 1, 1)
-    minTS=min_date.toordinal()
-    maxTS=max_date.toordinal()
-
-    sigma = sigma[(timeStamps >= minTS) & (timeStamps <= maxTS)]
-    threshold = threshold[(timeStamps >= minTS) & (timeStamps <= maxTS)]
-    timeStamps = timeStamps[(timeStamps >= minTS) & (timeStamps <= maxTS)]
-    
-    # Handle figure and axes
-    if ax is None:
-        fig, ax = plt.subplots(figsize=(figPosition[2]/100, figPosition[3]/100))
-        phandles = [fig]
-    else:
-        phandles = [ax]
-
-    L = len(timeStamps)
-    minTS = timeStamps[0]
-    maxTS = timeStamps[-1]
-
-    npdf = int(np.ceil(((maxTS - minTS) / avgYearLength) * nPlottedTimesByYear))
-    navg = int(np.ceil(L / npdf))
-
-    plotSLength = npdf * navg
-    timeStamps_plot = np.linspace(minTS, maxTS, plotSLength)
-
-    # Handle epsilon values
-    if isinstance(epsilon, (list, np.ndarray)):
-        if len(epsilon) == 1:
-            epsilon0 = np.ones(npdf) * epsilon
-    else:
-        epsilon_ = np.full(npdf * navg, np.nan)
-        epsilon_[:L] = epsilon
-        epsilonMtx = epsilon_.reshape(navg, -1)
-        epsilon0 = np.nanmean(epsilonMtx, axis=0).T
-
-    sigma_ = np.interp(timeStamps_plot, timeStamps, sigma)
-    sigmaMtx = sigma_.reshape(-1, navg)
-
-    if sigmaMtx.shape[0] > 1:
-        sigma0 = np.nanmean(sigmaMtx, axis=1)
-        sigma0 = sigma0.T
-    else:
-        sigma0 = np.transpose(sigmaMtx)
-
-    threshold_ = np.interp(timeStamps_plot, timeStamps, threshold)
-    thresholdMtx = threshold_.reshape(-1, navg)
-    if thresholdMtx.shape[0] > 1:
-        threshold0 = np.nanmean(thresholdMtx, axis=1)
-        threshold0 = threshold0.T
-    else:
-        threshold0 = thresholdMtx.T
-    
-    _, epsilonMtx = np.meshgrid(Y, epsilon0)
-    _, sigmaMtx = np.meshgrid(Y, sigma0)
-    XMtx, thresholdMtx = np.meshgrid(Y, threshold0)
-    
-    gevvar = genpareto.pdf(XMtx-thresholdMtx, c=epsilonMtx, scale=sigmaMtx)
-    
-    # Plotting
-    gevvar_transposed = gevvar.T
-    cax = ax.imshow(gevvar_transposed, aspect='auto', origin='lower',cmap=colormap, extent=[timeStamps_plot[0],timeStamps_plot[-1], Y[0], Y[-1]])
-    
-    phandles.append(cax)
-
-    # Formatting the axes
-    ax.set_xlabel('Year', fontsize=labelFontSize)
-    ax.set_ylabel(ylabel, fontsize=labelFontSize)
-    ax.tick_params(axis='both', labelsize=axisFontSize)
-
-    # Date formatting
-    ax.xaxis.set_major_formatter(plt.matplotlib.dates.DateFormatter(dateformat))
-    ax.grid(True)
-
-    # Adjust xticks if provided
-    if xtick:
-        ax.set_xticks(xtick)
-        ax.set_xticklabels([datetime.fromordinal(int(t)).strftime(dateformat) for t in xtick])
-
-    ax.set_xlim([minTS,maxTS])  
-    
-    # Colorbar
-    if plotColorbar:
-        cbar = fig.colorbar(cax, ax=ax)
-        cbar.set_label(zlabel, fontsize=labelFontSize)
-
-    return phandles
-
-def tsEvaPlotGEVImageScFromAnalysisObj(X, nonStationaryEvaParams, stationaryTransformData, **kwargs):
-    
-    timeStamps = stationaryTransformData.timeStamps
-    epsilon = -nonStationaryEvaParams[0]['parameters']['epsilon']
-    sigma = nonStationaryEvaParams[0]['parameters']['sigma']
-    mu = nonStationaryEvaParams[0]['parameters']['mu']
-
-    phandles = tsEvaPlotGEVImageSc(X, timeStamps, epsilon, sigma, mu, **kwargs)
-    
-    
-    return phandles
-
-def tsEvaPlotGPDImageScFromAnalysisObj(Y, nonStationaryEvaParams, stationaryTransformData, **kwargs):
-    timeStamps = stationaryTransformData.timeStamps
-    epsilon = nonStationaryEvaParams[1]['parameters']['epsilon']
-    sigma = nonStationaryEvaParams[1]['parameters']['sigma']
-    threshold = nonStationaryEvaParams[1]['parameters']['threshold']
-    phandles = tsEvaPlotGPDImageSc(Y, timeStamps, epsilon, sigma, threshold, **kwargs)
-    
-    return phandles
-
-def tsEvaPlotSeriesTrendStdDev(timeStamps, series, trend, stdDev, **kwargs):
-    confidenceAreaColor = kwargs.get('confidenceAreaColor',np.array([0.741, 0.988, 0.788]))
-    confidenceBarColor = kwargs.get('confidenceBarColor',np.array([0.133, 0.545, 0.133]))
-    seriesColor = kwargs.get('seriesColor',[1, 0.5, 0.5])
-    trendColor = kwargs.get('trendColor','k')
-    xlabel = kwargs.get('xlabel','')
-    ylabel = kwargs.get('ylabel','level (m)')
-    minYear = kwargs.get('minYear',1000)
-    maxYear = kwargs.get('maxYear',9999)
-    title = kwargs.get('title','')
-    axisFontSize = kwargs.get('axisFontSize',22)
-    labelFontSize = kwargs.get('labelFontSize',28)
-    titleFontSize = kwargs.get('titleFontSize',30)
-    legendLocation = kwargs.get('legendLocation','upper left')
-    dateformat = kwargs.get('dateformat','%Y')
-    figPosition = kwargs.get('figPosition',[10, 10, 1300, 700])
-    verticalRange = kwargs.get('verticalRange',None)
-    statsTimeStamps = kwargs.get('statsTimeStamps',timeStamps)
-    xtick = kwargs.get('xtick',[])
-    
-    for key, value in kwargs.items():
-        if (key=='confidenceAreaColor'): 
-            confidenceAreaColor=value
-        if (key=='confidenceBarColor'): 
-            confidenceBarColor=value
-        if (key=='seriesColor'): 
-            seriesColor=value
-        if (key=='trendColor'): 
-            trendColor=value
-        if (key=='xlabel'): 
-            xlabel=value
-        if (key=='ylabel'): 
-            ylabel=value
-        if (key=='minYear'): 
-            minYear=value
-        if (key=='maxYear'): 
-            maxYear=value
-        if (key=='title'): 
-            title=value
-        if (key=='axisFontSize'): 
-            axisFontSize=value
-        if (key=='labelFontSize'): 
-            labelFontSize=value
-        if (key=='titleFontSize'): 
-            titleFontSize=value
-        if (key=='legendLocation'): 
-            legendLocation=value
-        if (key=='dateformat'): 
-            dateformat=value
-        if (key=='figPosition'): 
-            figPosition=value
-        if (key=='verticalRange'): 
-            verticalRange=value
-        if (key=='statsTimeStamps'): 
-            statsTimeStamps=value
-        if (key=='xtick'):
-            xtick=value
-
-    # Convert years to matplotlib date numbers for filtering
-    min_date=datetime(minYear, 1, 1)
-    max_date=datetime(maxYear, 1, 1)
-    minTS=min_date.toordinal()
-    maxTS=max_date.toordinal()
-    
-    # Filtering data
-    
-    filtered_timeStamps = timeStamps[(timeStamps >= minTS) & (timeStamps <= maxTS)]
-    filtered_series = series[(timeStamps >= minTS) & (timeStamps <= maxTS)]
-
-    filtered_statsTS = statsTimeStamps[(statsTimeStamps >= minTS) & (statsTimeStamps <= maxTS)]
-    
-    filtered_trend = trend[(timeStamps >= minTS) & (timeStamps <= maxTS)]
-    filtered_stdDev = stdDev[(timeStamps >= minTS) & (timeStamps <= maxTS)]
-
-    upCI = filtered_trend + filtered_stdDev
-    downCI = filtered_trend - filtered_stdDev
-
-    # Create figure and axis
-    fig, ax = plt.subplots(figsize=(figPosition[2] / 100,figPosition[3] / 100))
-    phandles = [fig]
-
-    # Plot series
-    line_series, = ax.plot(filtered_timeStamps, filtered_series, color=seriesColor, linewidth=0.5)
-    
-    phandles.append(line_series)
-
-    # Date formatting on x-axis
-    ax.xaxis.set_major_formatter(mdates.DateFormatter(dateformat))
-
-    if xtick:
-        ax.set_xticks(xtick)
-        ax.set_xticklabels([datetime.fromordinal(int(t)).strftime(dateformat) for t in xtick])
-
-    ax.set_xlim([np.min(filtered_timeStamps), np.max(filtered_timeStamps)])
-
-    # Fill confidence interval area
-    xcibar = np.concatenate([filtered_statsTS, filtered_statsTS[::-1]])
-    ycibar = np.concatenate([upCI, downCI[::-1]])
-
-    fill_poly = ax.fill(xcibar, ycibar, color=confidenceAreaColor, alpha=0.2, edgecolor='none')
-    phandles.append(fill_poly[0])
-    
-    # Plot trend and confidence bars
-    line_trend, = ax.plot(filtered_statsTS, filtered_trend, color=trendColor, linewidth=3)
-    phandles.append(line_trend)
-
-    line_upCI, = ax.plot(filtered_statsTS, upCI, color=confidenceBarColor, linewidth=2)
-    phandles.append(line_upCI)
-
-    line_downCI, = ax.plot(filtered_statsTS, downCI, color=confidenceBarColor, linewidth=2)
-    phandles.append(line_downCI)
-
-    ax.grid(True)
-
-    if verticalRange is not None and len(verticalRange) == 2:
-        ax.set_ylim(verticalRange)
-
-    ax.legend([line_series, line_trend, line_downCI], ['Series', 'Trend', 'Std dev'],
-              fontsize=labelFontSize, loc=legendLocation)
-
-    ax.tick_params(axis='both', which='major', labelsize=axisFontSize)
-    ax.set_xlabel(xlabel, fontsize=labelFontSize)
-    ax.set_ylabel(ylabel, fontsize=labelFontSize)
-
-    if title:
-        ax.set_title(title, fontsize=titleFontSize)
-
-    fig.tight_layout()
-
-    return phandles
-
-def tsEvaPlotGEV3DFromAnalysisObj(X, nonStationaryEvaParams, stationaryTransformData, **kwargs):
-    timeStamps = stationaryTransformData.timeStamps
-    epsilon = nonStationaryEvaParams[0]['parameters']['epsilon']
-    sigma = nonStationaryEvaParams[0]['parameters']['sigma']
-    mu = nonStationaryEvaParams[0]['parameters']['mu']
-
-    phandles = tsEvaPlotGEV3D(X, timeStamps, epsilon, sigma, mu, **kwargs)
-
-    return phandles
-
-def tsEvaPlotGEV3D(X, timeStamps, epsilon, sigma, mu, **kwargs):
-    avgYearLength = 365.2425
-    # Default arguments
-    nPlottedTimesByYear=kwargs.get('nPlottedTimesByYear', 180)
-    xlabel=kwargs.get('xlabel','levels (m)')
-    ylabel=kwargs.get('ylabel','year')
-    zlabel= kwargs.get('zlabel','pdf')
-    minyear= kwargs.get('minyear',1)
-    maxyear= kwargs.get('maxyear',9999)
-    dateformat= kwargs.get('dateformat','%Y')
-    axisFontSize= kwargs.get('axisFontSize', 20)
-    labelFontSize=kwargs.get('labelFontSize', 20)
-    ytick = kwargs.get('ytick',[])
-
-        # Update args with passed values
-    for key, value in kwargs.items():
-        if (key=='nPlottedTimesByYear'):
-            nPlottedTimesByYear=value
-        if (key=='xlabel'):
-            xlabel=value
-        if (key=='ylabel'):
-            ylabel=value
-        if (key=='zlabel'):
-            zlabel=value
-        if (key=='minyear'):
-            minyear=value
-        if (key=='maxyear'):
-            maxyear=value
-        if (key=='dateformat'):
-            dateformat=value
-        if (key=='axisFontSize'):
-            axisFontSize=value
-        if (key=='legendFontSize'):
-            legendFontSize=value
-        if (key=='ytick'):
-            ytick=value
-
-            
-    min_date=datetime(minyear, 1, 1)
-    max_date=datetime(maxyear, 1, 1)
-    minTS=min_date.toordinal()
-    maxTS=max_date.toordinal()
-    
-    # Ensure timeStamps are in datetime
-    # If they are numeric, convert accordingly
-    # For demonstration, assume they are datetime objects
-    filtered_timeStamps = timeStamps[(timeStamps >= minTS) & (timeStamps <= maxTS)]
-    filtered_sigma = sigma[(timeStamps >= minTS) & (timeStamps <= maxTS)]
-    filtered_mu = mu[(timeStamps >= minTS) & (timeStamps <= maxTS)]
-    
-
-    fig = plt.figure()
-    phandles = [fig]
-    fig.set_size_inches(13, 7)
-
-    L = len(filtered_timeStamps)
-    
-    # Compute number of points to plot
-    avgYearLength = 365.2425
-    total_years = (maxTS - minTS)/avgYearLength
-    npdf = int(np.ceil(total_years * nPlottedTimesByYear))
-    navg = int(np.ceil(L / npdf))
-    
-    plotSLength = npdf * navg
-    timeStamps_plot = np.linspace(minTS, maxTS, plotSLength)
-
-    # Handle epsilon
-    if np.shape(epsilon) == ():  # scalar
-        epsilon0 = np.ones(npdf) * epsilon
-    else:
-        epsilon_ = np.full(npdf * navg, np.nan)
-        epsilon_flat = np.array(epsilon).flatten()
-        epsilon_[:L] = epsilon_flat[:L]
-        epsilonMtx = epsilon_.reshape(navg, -1, order='F') 
-        epsilon0 = np.nanmean(epsilonMtx, axis=0)
-        
-
-
-    # Interpolate sigma and mu at plot points
-
-    # Get interpolated values at desired points
-    sigma_ = np.interp(timeStamps_plot, timeStamps, sigma)
-    sigmaMtx = sigma_.reshape(navg, -1, order='F')
-    sigma0 = np.nanmean(sigmaMtx, axis=0)
-        
-    mu_ = np.interp(timeStamps_plot, timeStamps, mu)
-    muMtx = mu_.reshape(navg, -1, order='F')
-    mu0 = np.nanmean(muMtx, axis=0)
-    
-    # Generate meshgrid for surface
-    _, epsilonMtx = np.meshgrid(X, epsilon0)
-    _, sigmaMtx = np.meshgrid(X, sigma0)
-    XMtx, muMtx = np.meshgrid(X, mu0)
-
-    timeStamps_plot = np.linspace(minTS, maxTS, len(mu0))
-    # Compute GEV PDF
-    gevvar = gev.pdf(XMtx, c=epsilonMtx, loc=muMtx, scale=sigmaMtx)
-
-    # Plot surface
-    ax = fig.add_subplot(111, projection='3d')
-    X, timeStamps_plot = np.meshgrid(X, timeStamps_plot)
-    surf = ax.plot_surface(X, timeStamps_plot, gevvar, cmap=cm.viridis, linewidth=0, antialiased=False)
-             
-
-    phandles.append(surf)
-
-    # Date formatting on y-axis
-    ax.yaxis.set_major_formatter(mdates.DateFormatter(dateformat))
-
-    if ytick:
-        ax.set_yticks(ytick)
-        ax.set_yticklabels([datetime.fromordinal(int(t)).strftime(dateformat) for t in ytick])
-    
-    ax.set_ylim([minTS,maxTS])
-    ax.view_init(elev=48, azim=24.3)
-
-    ax.set_xlabel(xlabel, fontsize=labelFontSize, labelpad=20)
-    ax.set_ylabel(ylabel, fontsize=labelFontSize, labelpad=20)
-    ax.set_zlabel(zlabel, fontsize=labelFontSize, labelpad=20)
-    ax.tick_params(axis='both', labelsize=axisFontSize)
-
-    plt.tight_layout()
-
-    return phandles
-
 def tsEvaNanRunningPercentile(series, windowSize, percent, **kwargs):
     series = np.array(series)
     length = len(series)
@@ -1144,422 +462,6 @@ def tsEvaNanRunningPercentile(series, windowSize, percent, **kwargs):
     
     return rnprcnt, std_error
                                        
-def tsEvaPlotSeriesTrendStdDevFromAnalysisObj(nonStationaryEvaParams,stationaryTransformData,**kwargs):
-    plotPercentile = kwargs.get('plotPercentile',-1)
-    ylabel = kwargs.get('ylabel','levels (m)')
-    title = kwargs.get('title','')
-    minYear = kwargs.get('minYear',1)
-    maxYear = kwargs.get('maxYear',9999)
-    for key, value in kwargs.items():
-        if (key=='plotPercentile'): 
-            plotPercentile=value
-        if (key=='ylabel'): 
-            ylabel=value
-        if (key=='title'): 
-            title=value
-        if (key=='minYear'): 
-            minYear=value
-        if (key=='maxYear'): 
-            maxYear=value
-
-    # Extract required series
-    timeStamps = stationaryTransformData.timeStamps
-    series = stationaryTransformData.nonStatSeries
-    trend = stationaryTransformData.trendSeries
-    std_dev = stationaryTransformData.stdDevSeries
-    
-    if hasattr(stationaryTransformData, 'statsTimeStamps'):
-        statsTimeStamps = stationaryTransformData.statsTimeStamps
-    else:
-        statsTimeStamps = timeStamps
-    
-    # Plot core trend + std dev
-    phandles = tsEvaPlotSeriesTrendStdDev(timeStamps, series, trend, std_dev,statsTimeStamps=statsTimeStamps,**kwargs)
-
-    # Optionally plot percentile
-    if plotPercentile != -1:
-        prcntile = tsEvaNanRunningPercentile(series,stationaryTransformData['runningStatsMulteplicity'],plotPercentile)
-
-        fig = plt.figure(phandles[0].figure.number)
-        ax = fig.gca()
-        hndl, = ax.plot(timeStamps, prcntile)
-        phandles.append(hndl)
-
-    return phandles
-
-def tsEvaPlotReturnLevelsGEV(epsilon, sigma, mu, epsilonStdErr, sigmaStdErr, muStdErr, **kwargs):
-    # Default argument values
-
-    minReturnPeriodYears = kwargs.get('minReturnPeriodYears',5)
-    maxReturnPeriodYears = kwargs.get('maxReturnPeriodYears',1000)
-    confidenceAreaColor = kwargs.get('confidenceAreaColor',[0.741, 0.988, 0.788])  # light green
-    confidenceBarColor = kwargs.get('confidenceBarColor',[0.133, 0.545, 0.133])      # dark green
-    returnLevelColor = kwargs.get('returnLevelColor','k')
-    xlabel = kwargs.get('xlabel','return period (years)')
-    ylabel = kwargs.get('ylabel','return levels (m)')
-    ylim = kwargs.get('ylim',None)
-    dtSampleYears = kwargs.get('dtSampleYears',1)
-    ax = kwargs.get('ax',None)
-
-    for key, value in kwargs.items():
-        if (key=='minReturnPeriodYears'):
-            minReturnPeriodYears=value
-        if (key=='maxReturnPeriodYears'):
-            maxReturnPeriodYears=value
-        if (key=='confidenceAreaColor'):
-            confidenceAreaColor=value
-        if (key=='confidenceBarColor'):
-            confidenceBarColor=value
-        if (key=='returnLevelColor'):
-            returnLevelColor=value
-        if (key=='xlabel'):
-            xlabel=value
-        if (key=='ylabel'):
-            ylabel=value
-        if (key=='ylim'):
-            ylim=value
-        if (key=='dtSampleYears'):
-            dtSampleYears=value
-        if (key=='ax'):
-            ax=value
-    
-    # Compute return periods and their corresponding periods in dt
-    returnPeriodsInYears = np.logspace(np.log10(minReturnPeriodYears), np.log10(maxReturnPeriodYears), num=100)
-    returnPeriodsInDts = returnPeriodsInYears / dtSampleYears
-
-    # Compute return levels and errors
-    returnLevels, returnLevelsErrs = tsEvaComputeReturnLevelsGEV(epsilon, sigma, mu, epsilonStdErr, sigmaStdErr, muStdErr, returnPeriodsInDts)
-    
-    # Confidence intervals
-    supRLCI = returnLevels + 2 * returnLevelsErrs
-    infRLCI = returnLevels - 2 * returnLevelsErrs
-    
-    # Determine Y limits based on the confidence intervals
-    if ylim is not None:
-        minRL = min(ylim)
-        maxRL = max(ylim)
-    else:
-        minRL = min(np.min(arr) for arr in infRLCI)
-        maxRL = max(np.min(arr) for arr in supRLCI)
-
-        # Plotting
-    if ax is None:
-        fig, ax = plt.subplots(figsize=(13, 7))  # Similar to figure position and size
-    else:
-        fig = None
-
-    # Area plot for confidence intervals
-    ax.fill_between(returnPeriodsInYears, infRLCI[0], supRLCI[0], color=confidenceAreaColor, label='Confidence Area', zorder=1)
-
-    # Plot return levels
-    ax.plot(returnPeriodsInYears, returnLevels[0], color=returnLevelColor, linewidth=3, label='Return Levels', zorder=2)
-
-    # Plot confidence bars
-    ax.plot(returnPeriodsInYears, supRLCI[0], color=confidenceBarColor, linewidth=2, label='Upper CI', zorder=3)
-    ax.plot(returnPeriodsInYears, infRLCI[0], color=confidenceBarColor, linewidth=2, label='Lower CI', zorder=3)
-
-    # Set plot scale to logarithmic for x-axis
-    ax.set_xscale('log')
-
-    # Set axis limits
-    ax.set_xlim([minReturnPeriodYears, maxReturnPeriodYears])
-#    ax.set_ylim([minRL[0], maxRL[0]])
-    ax.set_ylim([minRL, maxRL])
-
-    # Labeling and formatting
-    ax.set_xlabel(xlabel, fontsize=24)
-    ax.set_ylabel(ylabel, fontsize=24)
-    ax.grid(True, which='both', zorder=4)
-    ax.tick_params(axis='both', labelsize=20)
-    ax.legend(fontsize=16)
-
-
-    # Finalizing plot appearance
-    if fig:
-        fig.subplots_adjust(left=0.1, right=0.9, top=0.9, bottom=0.1)
-
-    phandles = {
-        'fig': fig,
-        'ax': ax,
-        'confidence_area': ax.collections[0],  # first area collection
-        'return_levels': ax.lines[0],  # first line plot (return levels)
-        'upper_CI': ax.lines[1],  # second line plot (upper CI)
-        'lower_CI': ax.lines[2],  # third line plot (lower CI)
-    }
-
-    return phandles
-
-def tsEvaPlotReturnLevelsGEVFromAnalysisObj(nonStationaryEvaParams, timeIndex, **kwargs):
-    ylim = kwargs.get('ylim',None)
-    for key, value in kwargs.items():
-        if (key=='ylim'): 
-            ylim=value
-
-    epsilon = nonStationaryEvaParams[0]['parameters']['epsilon']
-    sigma = nonStationaryEvaParams[0]['parameters']['sigma'][timeIndex] if isinstance(nonStationaryEvaParams[0]['parameters']['sigma'], np.ndarray) else nonStationaryEvaParams[0]['parameters']['sigma']
-    mu = nonStationaryEvaParams[0]['parameters']['mu'][timeIndex] if isinstance(nonStationaryEvaParams[0]['parameters']['mu'], np.ndarray) else nonStationaryEvaParams[0]['parameters']['mu']
-    dtSampleYears = nonStationaryEvaParams[0]['parameters']['timeDeltaYears']
-    epsilonStdErr = nonStationaryEvaParams[0]['paramErr']['epsilonErr']
-    sigmaStdErr = nonStationaryEvaParams[0]['paramErr']['sigmaErr'][timeIndex] if isinstance(nonStationaryEvaParams[0]['paramErr']['sigmaErr'], np.ndarray) else nonStationaryEvaParams[0]['paramErr']['sigmaErr']
-    muStdErr = nonStationaryEvaParams[0]['paramErr']['muErr'][timeIndex] if isinstance(nonStationaryEvaParams[0]['paramErr']['muErr'], np.ndarray) else nonStationaryEvaParams[0]['paramErr']['muErr']
-    
-    phandles = tsEvaPlotReturnLevelsGEV(
-        epsilon,
-        sigma,
-        mu,
-        epsilonStdErr,
-        sigmaStdErr,
-        muStdErr,
-        ylim=ylim
-    )
-    return phandles
-
-                
-def tsEvaPlotReturnLevelsGPDFromAnalysisObj(nonStationaryEvaParams, timeIndex, **kwargs):
-
-    ylim = kwargs.get('ylim',None)
-    for key, value in kwargs.items():
-        if (key=='ylim'): 
-            ylim=value
-
-    epsilon = nonStationaryEvaParams[1]['parameters']['epsilon']
-    sigma = nonStationaryEvaParams[1]['parameters']['sigma'][timeIndex] if isinstance(nonStationaryEvaParams[1]['parameters']['sigma'], np.ndarray) else nonStationaryEvaParams[1]['parameters']['sigma']
-    threshold = nonStationaryEvaParams[1]['parameters']['threshold'][timeIndex] if isinstance(nonStationaryEvaParams[1]['parameters']['threshold'], np.ndarray) else nonStationaryEvaParams[1]['parameters']['threshold']
-    thStart = nonStationaryEvaParams[1]['parameters']['timeHorizonStart']
-    thEnd = nonStationaryEvaParams[1]['parameters']['timeHorizonEnd']
-    timeHorizonInYears = round((thEnd-thStart)/ 365.2425)
-    nPeaks = nonStationaryEvaParams[1]['parameters']['nPeaks']
-    
-    epsilonStdErr = nonStationaryEvaParams[1]['paramErr']['epsilonErr']
-    sigmaStdErr = nonStationaryEvaParams[1]['paramErr']['sigmaErr'][timeIndex] if isinstance(nonStationaryEvaParams[1]['paramErr']['sigmaErr'], np.ndarray) else nonStationaryEvaParams[1]['paramErr']['sigmaErr']
-    thresholdStdErr = nonStationaryEvaParams[1]['paramErr']['thresholdErr'][timeIndex] if isinstance(nonStationaryEvaParams[1]['paramErr']['thresholdErr'], np.ndarray) else nonStationaryEvaParams[1]['paramErr']['thresholdErr']
-
-    phandles = tsEvaPlotReturnLevelsGPD(
-        epsilon,
-        sigma,
-        threshold,
-        epsilonStdErr,
-        sigmaStdErr,
-        thresholdStdErr,
-        nPeaks,
-        timeHorizonInYears,
-        ylim=ylim
-    )
-    return phandles
-
-def tsPlotSeriesPotGPDRetLevFromAnalysisObj(nonStationaryEvaParams, stationaryTransformData, **kwargs):
-    """Plot original (non-stationary) series with time-varying GPD return levels and POT peaks.
-    Python port of MATLAB tsPlotSeriesPotGPDRetLevFromAnalysisObj."""
-    legendLocation = kwargs.get('legendLocation', 'upper left')
-    ylabel         = kwargs.get('ylabel', 'level (m)')
-    xlabel         = kwargs.get('xlabel', 'Date')
-    dateformat     = kwargs.get('dateformat', '%Y')
-    xtick          = kwargs.get('xtick', [])
-    figPosition    = kwargs.get('figPosition', [10, 10, 960, 420])
-    axisFontSize   = kwargs.get('axisFontSize', 16)
-    labelFontSize  = kwargs.get('labelFontSize', 18)
-    returnPeriods  = kwargs.get('returnPeriods', [5, 10, 30, 100])
-
-    timestamps = stationaryTransformData.timeStamps
-    series     = stationaryTransformData.nonStatSeries
-
-    epsilon      = nonStationaryEvaParams[1]['parameters']['epsilon']
-    sigma        = nonStationaryEvaParams[1]['parameters']['sigma']
-    threshold    = nonStationaryEvaParams[1]['parameters']['threshold']
-    thStart      = nonStationaryEvaParams[1]['parameters']['timeHorizonStart']
-    thEnd        = nonStationaryEvaParams[1]['parameters']['timeHorizonEnd']
-    timeHorizonInYears = round((thEnd - thStart) / 365.2425)
-    nPeaks       = nonStationaryEvaParams[1]['parameters']['nPeaks']
-    epsilonStdErr   = nonStationaryEvaParams[1]['paramErr']['epsilonErr']
-    sigmaStdErr     = nonStationaryEvaParams[1]['paramErr']['sigmaErr']
-    thresholdStdErr = nonStationaryEvaParams[1]['paramErr']['thresholdErr']
-
-    rlevel, _ = tsEvaComputeReturnLevelsGPD(
-        epsilon, sigma, threshold,
-        epsilonStdErr, sigmaStdErr, thresholdStdErr,
-        nPeaks, timeHorizonInYears, returnPeriods)
-
-    fig, ax = plt.subplots(figsize=(figPosition[2] / 100, figPosition[3] / 100))
-    colors = ['r', 'g', 'b', 'k', 'm', 'c']
-    ax.plot(timestamps, series, linewidth=0.5, label='Series')
-    for i, rp in enumerate(returnPeriods):
-        ax.plot(timestamps, rlevel[:, i], color=colors[i % len(colors)], label=str(rp))
-
-    peakIndexes = nonStationaryEvaParams[1]['objs'].get('peakIndexes')
-    if peakIndexes is not None:
-        ax.plot(timestamps[peakIndexes], series[peakIndexes], '*', color='cyan',
-                markersize=4, label='peaks')
-
-    ax.xaxis.set_major_formatter(mdates.DateFormatter(dateformat))
-    if xtick:
-        ax.set_xticks(xtick)
-        ax.set_xticklabels([datetime.fromordinal(int(t) - 366).strftime(dateformat) for t in xtick])
-    ax.set_xlim([timestamps[0], timestamps[-1]])
-    ax.set_xlabel(xlabel, fontsize=labelFontSize)
-    ax.set_ylabel(ylabel, fontsize=labelFontSize)
-    ax.tick_params(labelsize=axisFontSize)
-    ax.legend(loc=legendLocation, fontsize=axisFontSize)
-    ax.grid(True)
-    fig.tight_layout()
-    return {'fig': fig, 'ax': ax}
-
-
-def tsPlotSeriesYearMaxGEVRetLevFromAnalysisObj(nonStationaryEvaParams, stationaryTransformData, **kwargs):
-    """Plot original (non-stationary) series with time-varying GEV return levels and annual maxima.
-    Python port of MATLAB tsPlotSeriesYearMaxGEVRetLevFromAnalysisObj."""
-    legendLocation = kwargs.get('legendLocation', 'upper left')
-    ylabel         = kwargs.get('ylabel', 'level (m)')
-    xlabel         = kwargs.get('xlabel', 'Date')
-    dateformat     = kwargs.get('dateformat', '%Y')
-    xtick          = kwargs.get('xtick', [])
-    figPosition    = kwargs.get('figPosition', [10, 10, 960, 420])
-    axisFontSize   = kwargs.get('axisFontSize', 16)
-    labelFontSize  = kwargs.get('labelFontSize', 18)
-    returnPeriods  = kwargs.get('returnPeriods', [5, 10, 30, 100])
-
-    timestamps = stationaryTransformData.timeStamps
-    series     = stationaryTransformData.nonStatSeries
-
-    epsilon      = nonStationaryEvaParams[0]['parameters']['epsilon']
-    sigma        = nonStationaryEvaParams[0]['parameters']['sigma']
-    mu           = nonStationaryEvaParams[0]['parameters']['mu']
-    epsilonStdErr = nonStationaryEvaParams[0]['paramErr']['epsilonErr']
-    sigmaStdErr   = nonStationaryEvaParams[0]['paramErr']['sigmaErr']
-    muStdErr      = nonStationaryEvaParams[0]['paramErr']['muErr']
-
-    rlevel, _ = tsEvaComputeReturnLevelsGEV(
-        epsilon, sigma, mu,
-        epsilonStdErr, sigmaStdErr, muStdErr,
-        returnPeriods)
-
-    fig, ax = plt.subplots(figsize=(figPosition[2] / 100, figPosition[3] / 100))
-    colors = ['r', 'g', 'b', 'k', 'm', 'c']
-    ax.plot(timestamps, series, linewidth=0.5, label='Series')
-    for i, rp in enumerate(returnPeriods):
-        ax.plot(timestamps, rlevel[:, i], color=colors[i % len(colors)], label=f'{rp}-yr')
-
-    annualMaxIndexes = nonStationaryEvaParams[0]['objs'].get('annualMaxIndexes')
-    if annualMaxIndexes is not None:
-        ax.plot(timestamps[annualMaxIndexes], series[annualMaxIndexes], '*',
-                color='cyan', markersize=6, label='Annual max')
-
-    ax.xaxis.set_major_formatter(mdates.DateFormatter(dateformat))
-    if xtick:
-        ax.set_xticks(xtick)
-        ax.set_xticklabels([datetime.fromordinal(int(t) - 366).strftime(dateformat) for t in xtick])
-    ax.set_xlim([timestamps[0], timestamps[-1]])
-    ax.set_xlabel(xlabel, fontsize=labelFontSize)
-    ax.set_ylabel(ylabel, fontsize=labelFontSize)
-    ax.tick_params(labelsize=axisFontSize)
-    ax.legend(loc=legendLocation, fontsize=axisFontSize)
-    ax.grid(True)
-    fig.tight_layout()
-    return {'fig': fig, 'ax': ax}
-
-
-def tsEvaPlotReturnLevelsGPD(epsilon, sigma, threshold, epsilonStdErr, sigmaStdErr,thresholdStdErr,nPeaks,timeHorizonInYears,**kwargs):
-    # Default argument values
-
-    minReturnPeriodYears = kwargs.get('minReturnPeriodYears',5)
-    maxReturnPeriodYears = kwargs.get('maxReturnPeriodYears',1000)
-    confidenceAreaColor = kwargs.get('confidenceAreaColor',[0.741, 0.988, 0.788])  # light green
-    confidenceBarColor = kwargs.get('confidenceBarColor',[0.133, 0.545, 0.133])      # dark green
-    returnLevelColor = kwargs.get('returnLevelColor','k')
-    xlabel = kwargs.get('xlabel','return period (years)')
-    ylabel = kwargs.get('ylabel','return levels (m)')
-    ylim = kwargs.get('ylim',None)
-    dtSampleYears = kwargs.get('dtSampleYears',1)
-    ax = kwargs.get('ax',None)
-
-    for key, value in kwargs.items():
-        if (key=='minReturnPeriodYears'):
-            minReturnPeriodYears=value
-        if (key=='maxReturnPeriodYears'):
-            maxReturnPeriodYears=value
-        if (key=='confidenceAreaColor'):
-            confidenceAreaColor=value
-        if (key=='confidenceBarColor'):
-            confidenceBarColor=value
-        if (key=='returnLevelColor'):
-            returnLevelColor=value
-        if (key=='xlabel'):
-            xlabel=value
-        if (key=='ylabel'):
-            ylabel=value
-        if (key=='ylim'):
-            ylim=value
-        if (key=='dtSampleYears'):
-            dtSampleYears=value
-        if (key=='ax'):
-            ax=value
-
-    # Compute return periods and their corresponding periods in dt
-    returnPeriodsInYears = np.logspace(np.log10(minReturnPeriodYears), np.log10(maxReturnPeriodYears), num=100)
-    returnPeriodsInDts = returnPeriodsInYears / dtSampleYears
-
-    # Compute return levels and errors (this should call your custom function)
-    returnLevels, returnLevelsErrs = tsEvaComputeReturnLevelsGPD(epsilon, sigma, threshold, epsilonStdErr, sigmaStdErr, thresholdStdErr, nPeaks, timeHorizonInYears, returnPeriodsInDts)
-
-    # Confidence intervals
-    supRLCI = returnLevels + 2 * returnLevelsErrs
-    infRLCI = returnLevels - 2 * returnLevelsErrs
-    
-    # Determine Y limits based on the confidence intervals
-    if ylim is not None:
-        minRL = min(ylim)
-        maxRL = max(ylim)
-    else:
-        minRL = min(np.min(arr) for arr in infRLCI)
-        maxRL = max(np.min(arr) for arr in supRLCI)
-
-        
-    # Plotting
-    if ax is None:
-        fig, ax = plt.subplots(figsize=(13, 7))  # Similar to figure position and size
-    else:
-        fig = None
-
-    # Area plot for confidence intervals
-    ax.fill_between(returnPeriodsInYears, infRLCI[0], supRLCI[0], color=confidenceAreaColor, label='Confidence Area', zorder=1)
-
-    # Plot return levels
-    ax.plot(returnPeriodsInYears, returnLevels[0], color=returnLevelColor, linewidth=3, label='Return Levels', zorder=2)
-
-    # Plot confidence bars
-    ax.plot(returnPeriodsInYears, supRLCI[0], color=confidenceBarColor, linewidth=2, label='Upper CI', zorder=3)
-    ax.plot(returnPeriodsInYears, infRLCI[0], color=confidenceBarColor, linewidth=2, label='Lower CI', zorder=3)
-
-    # Set plot scale to logarithmic for x-axis
-    ax.set_xscale('log')
-
-    # Set axis limits
-    ax.set_xlim([minReturnPeriodYears, maxReturnPeriodYears])
-#    ax.set_ylim([minRL[0], maxRL[0]])
-    ax.set_ylim([minRL, maxRL])
-
-    # Labeling and formatting
-    ax.set_xlabel(xlabel, fontsize=24)
-    ax.set_ylabel(ylabel, fontsize=24)
-    ax.grid(True, which='both', zorder=4)
-    ax.tick_params(axis='both', labelsize=20)
-    ax.legend(fontsize=16)
-
-
-    # Finalizing plot appearance
-    if fig:
-        fig.subplots_adjust(left=0.1, right=0.9, top=0.9, bottom=0.1)
-
-    phandles = {
-        'fig': fig,
-        'ax': ax,
-        'confidence_area': ax.collections[0],  # first area collection
-        'return_levels': ax.lines[0],  # first line plot (return levels)
-        'upper_CI': ax.lines[1],  # second line plot (upper CI)
-        'lower_CI': ax.lines[2],  # third line plot (lower CI)
-    }
-
-    return phandles
-
 def tsEvaComputeTimeRP(params, RPiGEV, RPiGPD):
     paramx = pd.DataFrame(params, index=[0]).T
     qxV = 1 - np.exp(-((1 + paramx[0]['epsilonGEV'] * (RPiGEV - paramx[0]['muGEV']) / paramx[0]['sigmaGEV']) ** (-1 / paramx[0]['epsilonGEV'])))
@@ -3619,3 +2521,1116 @@ def tsEvaTransformSeriesToStationaryTrendOnly_ciPercentile(timeStamps, series, t
     trasfData.statSer4Mom = statSer4Mom
     
     return trasfData
+
+
+
+
+
+
+# =============================================================================
+# VISUALIZATION
+# =============================================================================
+
+def tsEvaPlotTransfToStat(timeStamps, statSeries, srsmean, stdDev, thirdMom, fourthMom, **kwargs):
+    axisFontSize=kwargs.get('axisFontSize', 20)
+    legendFontSize=kwargs.get('legendFontSize', 20)
+    xtick=kwargs.get('xtick',[])
+    figPosition=kwargs.get('figPosition',[x + 10 for x in [0, 0, 1450, 700]])
+    minyear=kwargs.get('minyear',1)
+    maxyear=kwargs.get('maxyear',9999)
+    dateformat=kwargs.get('dateformat','%Y')
+    legendLocation=kwargs.get('legendLocation','upper right')
+    ylim=kwargs.get('ylim',None)
+
+    # Update args with passed values
+    for key, value in kwargs.items():
+        if (key=='axisFontSize'):
+            axisFontSize=value
+        if (key=='legendFontSize'):
+            legendFontSize=value
+        if (key=='xtick'):
+            xtick=value
+        if (key=='figPosition'):
+            figPosition=value
+        if (key=='minyear'):
+            minyear=value
+        if (key=='maxyear'):
+            maxyear=value
+        if (key=='dateformat'):
+            dateformat=value
+        if (key=='legendLocation'):
+            legendLocation=value
+        if (key=='ylim'): 
+            ylim=value
+
+
+    min_date=datetime(minyear, 1, 1)
+    max_date=datetime(maxyear, 1, 1)
+    minTS=min_date.toordinal()
+    maxTS=max_date.toordinal()
+
+    filtered_statSeries = statSeries[(timeStamps >= minTS) & (timeStamps <= maxTS)]
+    filtered_srsmean = srsmean[(timeStamps >= minTS) & (timeStamps <= maxTS)]
+    filtered_stdDev = stdDev[(timeStamps >= minTS) & (timeStamps <= maxTS)]
+    filtered_thirdMom = thirdMom[(timeStamps >= minTS) & (timeStamps <= maxTS)]
+    filtered_fourthMom = fourthMom[(timeStamps >= minTS) & (timeStamps <= maxTS)]
+    filtered_timeStamps = timeStamps[(timeStamps >= minTS) & (timeStamps <= maxTS)]
+
+    minTS = min(filtered_timeStamps);
+    maxTS = max(filtered_timeStamps);
+
+    fig, ax = plt.subplots(figsize=(figPosition[2] / 100,figPosition[3] / 100))
+    phandles = [fig]
+    
+
+    ax.plot(filtered_timeStamps, filtered_statSeries, label='Normalized series', zorder=1)
+    ax.plot(filtered_timeStamps, filtered_srsmean, "--", color="k", linewidth=3, label='Mean', zorder=2)
+    ax.plot(filtered_timeStamps, filtered_stdDev, "--", color=[0.5, 0, 0], linewidth=3, label='Std. dev.', zorder=2)
+    ax.plot(filtered_timeStamps, filtered_thirdMom, color=[0, 0, 0.5], linewidth=3,label='Skewness', zorder=2)
+    ax.plot(filtered_timeStamps, filtered_fourthMom, color=[0, 0.4, 0], linewidth=3,label='Kurtosis',zorder=2)
+    ax.xaxis.set_major_formatter(mdates.DateFormatter(dateformat))
+    
+    ax.legend([ax.lines[0], ax.lines[1], ax.lines[2], ax.lines[3], ax.lines[4]], ['Normalized series', 'Mean', 'Std dev', 'Skewness', 'Kurtosis'],
+              fontsize=legendFontSize, loc=legendLocation)
+    ax.tick_params(labelsize=axisFontSize)
+
+    if xtick:
+        ax.set_xticks(xtick)
+        ax.set_xticklabels([datetime.fromordinal(int(t)).strftime(dateformat) for t in xtick])
+
+    ax.set_xlim([minTS,maxTS])
+    # Turn grid on
+    ax.grid(True)
+#    plt.tight_layout()
+
+    if ylim is not None:
+        ax.set_ylim(ylim) 
+    else:
+        all_data = np.concatenate([filtered_statSeries, filtered_srsmean, filtered_stdDev, filtered_thirdMom, filtered_fourthMom])
+        data_min = np.nanmin(all_data)
+        data_max = np.nanmax(all_data)
+        y_margin = 0.1 * (data_max - data_min)
+        ax.set_ylim([data_min - y_margin, data_max + y_margin])
+
+
+    phandles = {
+        'fig': fig,
+        'ax': ax,
+        'normalized_series': ax.lines[0],  # first line
+        'mean': ax.lines[1],  # second line plot
+        'std_dev': ax.lines[2],  # third line plot
+        'skewness': ax.lines[3],  # fourth line plot
+        'kurtosis': ax.lines[4],  # fifth line plot
+    }
+    return phandles
+
+def tsEvaPlotTransfToStatFromAnalysisObj(nonStationaryEvaParams, stationaryTransformData, **kwargs):
+    timeStamps = stationaryTransformData.timeStamps
+    series = stationaryTransformData.stationarySeries
+    srmean = np.zeros_like(series)
+    srstddev = np.ones_like(series)
+    st3mom = stationaryTransformData.statSer3Mom
+    st4mom = stationaryTransformData.statSer4Mom
+    
+    minyear = kwargs.get('minyear',1)
+    maxyear = kwargs.get('maxyear',9999)
+    dateFormat = kwargs.get('dateformat','%Y')
+    ylim = kwargs.get('ylim',None)
+
+    for key, value in kwargs.items():
+        if (key=='minyear'):
+            minyear=value
+        if (key=='maxyear'):
+            maxyear=value
+        if (key=='dateformat'):
+            dateformat=value
+        if (key=='ylim'): 
+            ylim=value
+
+    phandles = tsEvaPlotTransfToStat(timeStamps, series, srmean, srstddev, st3mom, st4mom, **kwargs)
+    return phandles
+
+def tsEvaPlotGEVImageSc(Y, timeStamps, epsilon, sigma, mu, **kwargs):
+    avgYearLength = 365.2425
+    nyears = (max(timeStamps) - min(timeStamps)) / avgYearLength
+    nelmPerYear = len(timeStamps) / nyears
+
+    # Default arguments
+    
+    nPlottedTimesByYear=kwargs.get('nPlottedTimesByYear',min(360, round(nelmPerYear)))
+    ylabel=kwargs.get('ylabel','levels (m)')
+    zlabel=kwargs.get('zlabel','pdf')
+    minYear=kwargs.get('minYear',1)
+    maxYear=kwargs.get('maxYear',9999)
+    dateformat=kwargs.get('dateformat','%Y')
+    axisFontSize=kwargs.get('axisFontSize',22)
+    labelFontSize=kwargs.get('labelFontSize',28)
+    colormap=kwargs.get('colormap', plt.cm.hot_r)
+    plotColorbar=kwargs.get('plotColorbar',True)
+    figPosition=kwargs.get('figPosition',[x + 10 for x in [0, 0, 1450, 700]])
+    xtick=kwargs.get('xtick',[])
+    ax=kwargs.get('ax',None)
+    
+    # Update args with passed values
+    for key, value in kwargs.items():
+        if (key=='nPlottedTimesByYear'):
+            nPlottedTimesByYear=value
+        if (key=='ylabel'):
+            ylabel=value
+        if (key=='zlabel'):
+            zlabel=value
+        if (key=='minYear'):
+            minYear=value
+        if (key=='maxYear'):
+            maxYear=value
+        if (key=='dateformat'):
+            dateformat=value
+        if (key=='axisFontSize'):
+            axisFontSize=value
+        if (key=='labelFontSize'):
+            labelFontSize=value
+        if (key=='colormap'):
+            colormap=value
+        if (key=='plotColorbar'):
+            plotColorbar=value
+        if (key=='figPosition'):
+            figPosition=value
+        if (key=='xtick'):
+            xtick=value
+        if (key=='ax'):
+            ax=value
+
+    min_date=datetime(minYear, 1, 1)
+    max_date=datetime(maxYear, 1, 1)
+    minTS=min_date.toordinal()
+    maxTS=max_date.toordinal()
+
+    sigma = sigma[(timeStamps >= minTS) & (timeStamps <= maxTS)]
+    mu = mu[(timeStamps >= minTS) & (timeStamps <= maxTS)]
+    timeStamps = timeStamps[(timeStamps >= minTS) & (timeStamps <= maxTS)]
+
+
+    # Handle figure and axes
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(figPosition[2]/100, figPosition[3]/100))
+        phandles = [fig]
+    else:
+        phandles = [ax]
+
+    # Setup time range
+    L = len(timeStamps)
+    minTS = timeStamps[0]
+    maxTS = timeStamps[-1]
+    
+    npdf = int(np.ceil(((maxTS - minTS) / avgYearLength) * nPlottedTimesByYear))
+    navg = int(np.ceil(L / npdf))
+
+    plotSLength = npdf * navg
+    timeStamps_plot = np.linspace(minTS, maxTS, plotSLength)
+
+    # Handle epsilon values
+    if isinstance(epsilon, (list, np.ndarray)):
+        if len(epsilon) == 1:
+            epsilon0 = np.ones(npdf) * epsilon
+    else:
+        epsilon_ = np.full(npdf * navg, np.nan)
+        epsilon_[:L] = epsilon
+        epsilonMtx = epsilon_.reshape(navg, -1)
+        epsilon0 = np.nanmean(epsilonMtx, axis=0).T
+
+    # Interpolation for sigma and mu
+    sigma_ = np.interp(timeStamps_plot, timeStamps, sigma)
+    sigmaMtx = sigma_.reshape(-1, navg)
+
+    if sigmaMtx.shape[0] > 1:
+        sigma0 = np.nanmean(sigmaMtx, axis=1)
+        sigma0 = sigma0.T
+    else:
+        sigma0 = np.transpose(sigmaMtx)
+    
+    mu_ = np.interp(timeStamps_plot, timeStamps, mu)
+    muMtx = mu_.reshape(-1, navg)
+    if muMtx.shape[0] > 1:
+        mu0 = np.nanmean(muMtx, axis=1)
+        mu0 = mu0.T  # Transpose
+    else:
+        mu0 = muMtx.T
+
+    # Create grid for GEV parameters
+    X_mesh, epsilonMtx = np.meshgrid(Y, epsilon0)
+    _, sigmaMtx = np.meshgrid(Y, sigma0)
+    XMtx, muMtx = np.meshgrid(Y, mu0)
+    
+    # Compute the GEV PDF
+    gevvar = gev.pdf(XMtx, c=epsilonMtx, loc=muMtx, scale=sigmaMtx)
+    
+    # Plotting
+    gevvar_transposed = gevvar.T
+    
+    cax = ax.imshow(gevvar_transposed, aspect='auto', origin='lower', extent=[timeStamps_plot[0], timeStamps_plot[-1], Y[0], Y[-1]])
+    phandles.append(cax)
+
+
+    # Formatting the axes
+    ax.set_xlabel('Year', fontsize=labelFontSize)
+    ax.set_ylabel(ylabel, fontsize=labelFontSize)
+    ax.tick_params(axis='both', labelsize=axisFontSize)
+
+    # Date formatting
+    ax.xaxis.set_major_formatter(plt.matplotlib.dates.DateFormatter(dateformat))
+    ax.grid(True)
+
+    # Adjust xticks if provided
+    if xtick:
+        ax.set_xticks(xtick)
+        ax.set_xticklabels([datetime.fromordinal(int(t)).strftime(dateformat) for t in xtick])
+    
+    ax.set_xlim([minTS,maxTS])
+
+    # Colorbar
+    if plotColorbar:
+        cbar = fig.colorbar(cax, ax=ax)
+        cbar.set_label(zlabel, fontsize=labelFontSize)
+
+    return phandles
+
+def tsEvaPlotGPDImageSc(Y, timeStamps, epsilon, sigma, threshold, **kwargs):
+    avgYearLength = 365.2425
+    nyears = (max(timeStamps) - min(timeStamps)) / avgYearLength
+    nelmPerYear = len(timeStamps) / nyears
+
+    # Default arguments
+    
+    nPlottedTimesByYear = kwargs.get('nPlottedTimesByYear',min(360, round(nelmPerYear)))
+    ylabel = kwargs.get('ylabel','levels (m)')
+    zlabel = kwargs.get('zlabel','pdf')
+    minYear = kwargs.get('minYear',1)
+    maxYear = kwargs.get('maxYear',9999)
+    dateFormat = kwargs.get('dateformat','%Y')
+    axisFontSize = kwargs.get('axisFontSize',22)
+    colormap=kwargs.get('colormap', plt.cm.hot_r)
+    plotColorbar=kwargs.get('plotColorbar',True)
+    labelFontSize = kwargs.get('labelFontSize',28)
+    figPosition = kwargs.get('figPosition',[x + 10 for x in [0, 0, 1450, 700]])
+    xtick = kwargs.get('xtick',[])
+    ax=kwargs.get('ax',None)
+    
+    for key, value in kwargs.items():
+        if (key=='nPlottedTimesByYear'):
+            nPlottedTimesByYear=value
+        if (key=='ylabel'):
+            ylabel=value
+        if (key=='zlabel'):
+            zlabel=value
+        if (key=='minYear'):
+            minYear=value
+        if (key=='maxYear'):
+            maxYear=value
+        if (key=='dateformat'):
+            dateformat=value
+        if (key=='axisFontSize'):
+            axisFontSize=value
+        if (key=='labelFontSize'):
+            labelFontSize=value
+        if (key=='colormap'):
+            colormap=value
+        if (key=='plotColorbar'):
+            plotColorbar=value
+        if (key=='figPosition'):
+            figPosition=value
+        if (key=='xtick'):
+            xtick=value
+        if (key=='ax'):
+            ax=value
+
+    min_date=datetime(minYear, 1, 1)
+    max_date=datetime(maxYear, 1, 1)
+    minTS=min_date.toordinal()
+    maxTS=max_date.toordinal()
+
+    sigma = sigma[(timeStamps >= minTS) & (timeStamps <= maxTS)]
+    threshold = threshold[(timeStamps >= minTS) & (timeStamps <= maxTS)]
+    timeStamps = timeStamps[(timeStamps >= minTS) & (timeStamps <= maxTS)]
+    
+    # Handle figure and axes
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(figPosition[2]/100, figPosition[3]/100))
+        phandles = [fig]
+    else:
+        phandles = [ax]
+
+    L = len(timeStamps)
+    minTS = timeStamps[0]
+    maxTS = timeStamps[-1]
+
+    npdf = int(np.ceil(((maxTS - minTS) / avgYearLength) * nPlottedTimesByYear))
+    navg = int(np.ceil(L / npdf))
+
+    plotSLength = npdf * navg
+    timeStamps_plot = np.linspace(minTS, maxTS, plotSLength)
+
+    # Handle epsilon values
+    if isinstance(epsilon, (list, np.ndarray)):
+        if len(epsilon) == 1:
+            epsilon0 = np.ones(npdf) * epsilon
+    else:
+        epsilon_ = np.full(npdf * navg, np.nan)
+        epsilon_[:L] = epsilon
+        epsilonMtx = epsilon_.reshape(navg, -1)
+        epsilon0 = np.nanmean(epsilonMtx, axis=0).T
+
+    sigma_ = np.interp(timeStamps_plot, timeStamps, sigma)
+    sigmaMtx = sigma_.reshape(-1, navg)
+
+    if sigmaMtx.shape[0] > 1:
+        sigma0 = np.nanmean(sigmaMtx, axis=1)
+        sigma0 = sigma0.T
+    else:
+        sigma0 = np.transpose(sigmaMtx)
+
+    threshold_ = np.interp(timeStamps_plot, timeStamps, threshold)
+    thresholdMtx = threshold_.reshape(-1, navg)
+    if thresholdMtx.shape[0] > 1:
+        threshold0 = np.nanmean(thresholdMtx, axis=1)
+        threshold0 = threshold0.T
+    else:
+        threshold0 = thresholdMtx.T
+    
+    _, epsilonMtx = np.meshgrid(Y, epsilon0)
+    _, sigmaMtx = np.meshgrid(Y, sigma0)
+    XMtx, thresholdMtx = np.meshgrid(Y, threshold0)
+    
+    gevvar = genpareto.pdf(XMtx-thresholdMtx, c=epsilonMtx, scale=sigmaMtx)
+    
+    # Plotting
+    gevvar_transposed = gevvar.T
+    cax = ax.imshow(gevvar_transposed, aspect='auto', origin='lower',cmap=colormap, extent=[timeStamps_plot[0],timeStamps_plot[-1], Y[0], Y[-1]])
+    
+    phandles.append(cax)
+
+    # Formatting the axes
+    ax.set_xlabel('Year', fontsize=labelFontSize)
+    ax.set_ylabel(ylabel, fontsize=labelFontSize)
+    ax.tick_params(axis='both', labelsize=axisFontSize)
+
+    # Date formatting
+    ax.xaxis.set_major_formatter(plt.matplotlib.dates.DateFormatter(dateformat))
+    ax.grid(True)
+
+    # Adjust xticks if provided
+    if xtick:
+        ax.set_xticks(xtick)
+        ax.set_xticklabels([datetime.fromordinal(int(t)).strftime(dateformat) for t in xtick])
+
+    ax.set_xlim([minTS,maxTS])  
+    
+    # Colorbar
+    if plotColorbar:
+        cbar = fig.colorbar(cax, ax=ax)
+        cbar.set_label(zlabel, fontsize=labelFontSize)
+
+    return phandles
+
+def tsEvaPlotGEVImageScFromAnalysisObj(X, nonStationaryEvaParams, stationaryTransformData, **kwargs):
+    
+    timeStamps = stationaryTransformData.timeStamps
+    epsilon = -nonStationaryEvaParams[0]['parameters']['epsilon']
+    sigma = nonStationaryEvaParams[0]['parameters']['sigma']
+    mu = nonStationaryEvaParams[0]['parameters']['mu']
+
+    phandles = tsEvaPlotGEVImageSc(X, timeStamps, epsilon, sigma, mu, **kwargs)
+    
+    
+    return phandles
+
+def tsEvaPlotGPDImageScFromAnalysisObj(Y, nonStationaryEvaParams, stationaryTransformData, **kwargs):
+    timeStamps = stationaryTransformData.timeStamps
+    epsilon = nonStationaryEvaParams[1]['parameters']['epsilon']
+    sigma = nonStationaryEvaParams[1]['parameters']['sigma']
+    threshold = nonStationaryEvaParams[1]['parameters']['threshold']
+    phandles = tsEvaPlotGPDImageSc(Y, timeStamps, epsilon, sigma, threshold, **kwargs)
+    
+    return phandles
+
+def tsEvaPlotSeriesTrendStdDev(timeStamps, series, trend, stdDev, **kwargs):
+    confidenceAreaColor = kwargs.get('confidenceAreaColor',np.array([0.741, 0.988, 0.788]))
+    confidenceBarColor = kwargs.get('confidenceBarColor',np.array([0.133, 0.545, 0.133]))
+    seriesColor = kwargs.get('seriesColor',[1, 0.5, 0.5])
+    trendColor = kwargs.get('trendColor','k')
+    xlabel = kwargs.get('xlabel','')
+    ylabel = kwargs.get('ylabel','level (m)')
+    minYear = kwargs.get('minYear',1000)
+    maxYear = kwargs.get('maxYear',9999)
+    title = kwargs.get('title','')
+    axisFontSize = kwargs.get('axisFontSize',22)
+    labelFontSize = kwargs.get('labelFontSize',28)
+    titleFontSize = kwargs.get('titleFontSize',30)
+    legendLocation = kwargs.get('legendLocation','upper left')
+    dateformat = kwargs.get('dateformat','%Y')
+    figPosition = kwargs.get('figPosition',[10, 10, 1300, 700])
+    verticalRange = kwargs.get('verticalRange',None)
+    statsTimeStamps = kwargs.get('statsTimeStamps',timeStamps)
+    xtick = kwargs.get('xtick',[])
+    
+    for key, value in kwargs.items():
+        if (key=='confidenceAreaColor'): 
+            confidenceAreaColor=value
+        if (key=='confidenceBarColor'): 
+            confidenceBarColor=value
+        if (key=='seriesColor'): 
+            seriesColor=value
+        if (key=='trendColor'): 
+            trendColor=value
+        if (key=='xlabel'): 
+            xlabel=value
+        if (key=='ylabel'): 
+            ylabel=value
+        if (key=='minYear'): 
+            minYear=value
+        if (key=='maxYear'): 
+            maxYear=value
+        if (key=='title'): 
+            title=value
+        if (key=='axisFontSize'): 
+            axisFontSize=value
+        if (key=='labelFontSize'): 
+            labelFontSize=value
+        if (key=='titleFontSize'): 
+            titleFontSize=value
+        if (key=='legendLocation'): 
+            legendLocation=value
+        if (key=='dateformat'): 
+            dateformat=value
+        if (key=='figPosition'): 
+            figPosition=value
+        if (key=='verticalRange'): 
+            verticalRange=value
+        if (key=='statsTimeStamps'): 
+            statsTimeStamps=value
+        if (key=='xtick'):
+            xtick=value
+
+    # Convert years to matplotlib date numbers for filtering
+    min_date=datetime(minYear, 1, 1)
+    max_date=datetime(maxYear, 1, 1)
+    minTS=min_date.toordinal()
+    maxTS=max_date.toordinal()
+    
+    # Filtering data
+    
+    filtered_timeStamps = timeStamps[(timeStamps >= minTS) & (timeStamps <= maxTS)]
+    filtered_series = series[(timeStamps >= minTS) & (timeStamps <= maxTS)]
+
+    filtered_statsTS = statsTimeStamps[(statsTimeStamps >= minTS) & (statsTimeStamps <= maxTS)]
+    
+    filtered_trend = trend[(timeStamps >= minTS) & (timeStamps <= maxTS)]
+    filtered_stdDev = stdDev[(timeStamps >= minTS) & (timeStamps <= maxTS)]
+
+    upCI = filtered_trend + filtered_stdDev
+    downCI = filtered_trend - filtered_stdDev
+
+    # Create figure and axis
+    fig, ax = plt.subplots(figsize=(figPosition[2] / 100,figPosition[3] / 100))
+    phandles = [fig]
+
+    # Plot series
+    line_series, = ax.plot(filtered_timeStamps, filtered_series, color=seriesColor, linewidth=0.5)
+    
+    phandles.append(line_series)
+
+    # Date formatting on x-axis
+    ax.xaxis.set_major_formatter(mdates.DateFormatter(dateformat))
+
+    if xtick:
+        ax.set_xticks(xtick)
+        ax.set_xticklabels([datetime.fromordinal(int(t)).strftime(dateformat) for t in xtick])
+
+    ax.set_xlim([np.min(filtered_timeStamps), np.max(filtered_timeStamps)])
+
+    # Fill confidence interval area
+    xcibar = np.concatenate([filtered_statsTS, filtered_statsTS[::-1]])
+    ycibar = np.concatenate([upCI, downCI[::-1]])
+
+    fill_poly = ax.fill(xcibar, ycibar, color=confidenceAreaColor, alpha=0.2, edgecolor='none')
+    phandles.append(fill_poly[0])
+    
+    # Plot trend and confidence bars
+    line_trend, = ax.plot(filtered_statsTS, filtered_trend, color=trendColor, linewidth=3)
+    phandles.append(line_trend)
+
+    line_upCI, = ax.plot(filtered_statsTS, upCI, color=confidenceBarColor, linewidth=2)
+    phandles.append(line_upCI)
+
+    line_downCI, = ax.plot(filtered_statsTS, downCI, color=confidenceBarColor, linewidth=2)
+    phandles.append(line_downCI)
+
+    ax.grid(True)
+
+    if verticalRange is not None and len(verticalRange) == 2:
+        ax.set_ylim(verticalRange)
+
+    ax.legend([line_series, line_trend, line_downCI], ['Series', 'Trend', 'Std dev'],
+              fontsize=labelFontSize, loc=legendLocation)
+
+    ax.tick_params(axis='both', which='major', labelsize=axisFontSize)
+    ax.set_xlabel(xlabel, fontsize=labelFontSize)
+    ax.set_ylabel(ylabel, fontsize=labelFontSize)
+
+    if title:
+        ax.set_title(title, fontsize=titleFontSize)
+
+    fig.tight_layout()
+
+    return phandles
+
+def tsEvaPlotGEV3DFromAnalysisObj(X, nonStationaryEvaParams, stationaryTransformData, **kwargs):
+    timeStamps = stationaryTransformData.timeStamps
+    epsilon = nonStationaryEvaParams[0]['parameters']['epsilon']
+    sigma = nonStationaryEvaParams[0]['parameters']['sigma']
+    mu = nonStationaryEvaParams[0]['parameters']['mu']
+
+    phandles = tsEvaPlotGEV3D(X, timeStamps, epsilon, sigma, mu, **kwargs)
+
+    return phandles
+
+def tsEvaPlotGEV3D(X, timeStamps, epsilon, sigma, mu, **kwargs):
+    avgYearLength = 365.2425
+    # Default arguments
+    nPlottedTimesByYear=kwargs.get('nPlottedTimesByYear', 180)
+    xlabel=kwargs.get('xlabel','levels (m)')
+    ylabel=kwargs.get('ylabel','year')
+    zlabel= kwargs.get('zlabel','pdf')
+    minyear= kwargs.get('minyear',1)
+    maxyear= kwargs.get('maxyear',9999)
+    dateformat= kwargs.get('dateformat','%Y')
+    axisFontSize= kwargs.get('axisFontSize', 20)
+    labelFontSize=kwargs.get('labelFontSize', 20)
+    ytick = kwargs.get('ytick',[])
+
+        # Update args with passed values
+    for key, value in kwargs.items():
+        if (key=='nPlottedTimesByYear'):
+            nPlottedTimesByYear=value
+        if (key=='xlabel'):
+            xlabel=value
+        if (key=='ylabel'):
+            ylabel=value
+        if (key=='zlabel'):
+            zlabel=value
+        if (key=='minyear'):
+            minyear=value
+        if (key=='maxyear'):
+            maxyear=value
+        if (key=='dateformat'):
+            dateformat=value
+        if (key=='axisFontSize'):
+            axisFontSize=value
+        if (key=='legendFontSize'):
+            legendFontSize=value
+        if (key=='ytick'):
+            ytick=value
+
+            
+    min_date=datetime(minyear, 1, 1)
+    max_date=datetime(maxyear, 1, 1)
+    minTS=min_date.toordinal()
+    maxTS=max_date.toordinal()
+    
+    # Ensure timeStamps are in datetime
+    # If they are numeric, convert accordingly
+    # For demonstration, assume they are datetime objects
+    filtered_timeStamps = timeStamps[(timeStamps >= minTS) & (timeStamps <= maxTS)]
+    filtered_sigma = sigma[(timeStamps >= minTS) & (timeStamps <= maxTS)]
+    filtered_mu = mu[(timeStamps >= minTS) & (timeStamps <= maxTS)]
+    
+
+    fig = plt.figure()
+    phandles = [fig]
+    fig.set_size_inches(13, 7)
+
+    L = len(filtered_timeStamps)
+    
+    # Compute number of points to plot
+    avgYearLength = 365.2425
+    total_years = (maxTS - minTS)/avgYearLength
+    npdf = int(np.ceil(total_years * nPlottedTimesByYear))
+    navg = int(np.ceil(L / npdf))
+    
+    plotSLength = npdf * navg
+    timeStamps_plot = np.linspace(minTS, maxTS, plotSLength)
+
+    # Handle epsilon
+    if np.shape(epsilon) == ():  # scalar
+        epsilon0 = np.ones(npdf) * epsilon
+    else:
+        epsilon_ = np.full(npdf * navg, np.nan)
+        epsilon_flat = np.array(epsilon).flatten()
+        epsilon_[:L] = epsilon_flat[:L]
+        epsilonMtx = epsilon_.reshape(navg, -1, order='F') 
+        epsilon0 = np.nanmean(epsilonMtx, axis=0)
+        
+
+
+    # Interpolate sigma and mu at plot points
+
+    # Get interpolated values at desired points
+    sigma_ = np.interp(timeStamps_plot, timeStamps, sigma)
+    sigmaMtx = sigma_.reshape(navg, -1, order='F')
+    sigma0 = np.nanmean(sigmaMtx, axis=0)
+        
+    mu_ = np.interp(timeStamps_plot, timeStamps, mu)
+    muMtx = mu_.reshape(navg, -1, order='F')
+    mu0 = np.nanmean(muMtx, axis=0)
+    
+    # Generate meshgrid for surface
+    _, epsilonMtx = np.meshgrid(X, epsilon0)
+    _, sigmaMtx = np.meshgrid(X, sigma0)
+    XMtx, muMtx = np.meshgrid(X, mu0)
+
+    timeStamps_plot = np.linspace(minTS, maxTS, len(mu0))
+    # Compute GEV PDF
+    gevvar = gev.pdf(XMtx, c=epsilonMtx, loc=muMtx, scale=sigmaMtx)
+
+    # Plot surface
+    ax = fig.add_subplot(111, projection='3d')
+    X, timeStamps_plot = np.meshgrid(X, timeStamps_plot)
+    surf = ax.plot_surface(X, timeStamps_plot, gevvar, cmap=cm.viridis, linewidth=0, antialiased=False)
+             
+
+    phandles.append(surf)
+
+    # Date formatting on y-axis
+    ax.yaxis.set_major_formatter(mdates.DateFormatter(dateformat))
+
+    if ytick:
+        ax.set_yticks(ytick)
+        ax.set_yticklabels([datetime.fromordinal(int(t)).strftime(dateformat) for t in ytick])
+    
+    ax.set_ylim([minTS,maxTS])
+    ax.view_init(elev=48, azim=24.3)
+
+    ax.set_xlabel(xlabel, fontsize=labelFontSize, labelpad=20)
+    ax.set_ylabel(ylabel, fontsize=labelFontSize, labelpad=20)
+    ax.set_zlabel(zlabel, fontsize=labelFontSize, labelpad=20)
+    ax.tick_params(axis='both', labelsize=axisFontSize)
+
+    plt.tight_layout()
+
+    return phandles
+
+def tsEvaPlotSeriesTrendStdDevFromAnalysisObj(nonStationaryEvaParams,stationaryTransformData,**kwargs):
+    plotPercentile = kwargs.get('plotPercentile',-1)
+    ylabel = kwargs.get('ylabel','levels (m)')
+    title = kwargs.get('title','')
+    minYear = kwargs.get('minYear',1)
+    maxYear = kwargs.get('maxYear',9999)
+    for key, value in kwargs.items():
+        if (key=='plotPercentile'): 
+            plotPercentile=value
+        if (key=='ylabel'): 
+            ylabel=value
+        if (key=='title'): 
+            title=value
+        if (key=='minYear'): 
+            minYear=value
+        if (key=='maxYear'): 
+            maxYear=value
+
+    # Extract required series
+    timeStamps = stationaryTransformData.timeStamps
+    series = stationaryTransformData.nonStatSeries
+    trend = stationaryTransformData.trendSeries
+    std_dev = stationaryTransformData.stdDevSeries
+    
+    if hasattr(stationaryTransformData, 'statsTimeStamps'):
+        statsTimeStamps = stationaryTransformData.statsTimeStamps
+    else:
+        statsTimeStamps = timeStamps
+    
+    # Plot core trend + std dev
+    phandles = tsEvaPlotSeriesTrendStdDev(timeStamps, series, trend, std_dev,statsTimeStamps=statsTimeStamps,**kwargs)
+
+    # Optionally plot percentile
+    if plotPercentile != -1:
+        prcntile = tsEvaNanRunningPercentile(series,stationaryTransformData['runningStatsMulteplicity'],plotPercentile)
+
+        fig = plt.figure(phandles[0].figure.number)
+        ax = fig.gca()
+        hndl, = ax.plot(timeStamps, prcntile)
+        phandles.append(hndl)
+
+    return phandles
+
+def tsEvaPlotReturnLevelsGEV(epsilon, sigma, mu, epsilonStdErr, sigmaStdErr, muStdErr, **kwargs):
+    # Default argument values
+
+    minReturnPeriodYears = kwargs.get('minReturnPeriodYears',5)
+    maxReturnPeriodYears = kwargs.get('maxReturnPeriodYears',1000)
+    confidenceAreaColor = kwargs.get('confidenceAreaColor',[0.741, 0.988, 0.788])  # light green
+    confidenceBarColor = kwargs.get('confidenceBarColor',[0.133, 0.545, 0.133])      # dark green
+    returnLevelColor = kwargs.get('returnLevelColor','k')
+    xlabel = kwargs.get('xlabel','return period (years)')
+    ylabel = kwargs.get('ylabel','return levels (m)')
+    ylim = kwargs.get('ylim',None)
+    dtSampleYears = kwargs.get('dtSampleYears',1)
+    ax = kwargs.get('ax',None)
+
+    for key, value in kwargs.items():
+        if (key=='minReturnPeriodYears'):
+            minReturnPeriodYears=value
+        if (key=='maxReturnPeriodYears'):
+            maxReturnPeriodYears=value
+        if (key=='confidenceAreaColor'):
+            confidenceAreaColor=value
+        if (key=='confidenceBarColor'):
+            confidenceBarColor=value
+        if (key=='returnLevelColor'):
+            returnLevelColor=value
+        if (key=='xlabel'):
+            xlabel=value
+        if (key=='ylabel'):
+            ylabel=value
+        if (key=='ylim'):
+            ylim=value
+        if (key=='dtSampleYears'):
+            dtSampleYears=value
+        if (key=='ax'):
+            ax=value
+    
+    # Compute return periods and their corresponding periods in dt
+    returnPeriodsInYears = np.logspace(np.log10(minReturnPeriodYears), np.log10(maxReturnPeriodYears), num=100)
+    returnPeriodsInDts = returnPeriodsInYears / dtSampleYears
+
+    # Compute return levels and errors
+    returnLevels, returnLevelsErrs = tsEvaComputeReturnLevelsGEV(epsilon, sigma, mu, epsilonStdErr, sigmaStdErr, muStdErr, returnPeriodsInDts)
+    
+    # Confidence intervals
+    supRLCI = returnLevels + 2 * returnLevelsErrs
+    infRLCI = returnLevels - 2 * returnLevelsErrs
+    
+    # Determine Y limits based on the confidence intervals
+    if ylim is not None:
+        minRL = min(ylim)
+        maxRL = max(ylim)
+    else:
+        minRL = min(np.min(arr) for arr in infRLCI)
+        maxRL = max(np.min(arr) for arr in supRLCI)
+
+        # Plotting
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(13, 7))  # Similar to figure position and size
+    else:
+        fig = None
+
+    # Area plot for confidence intervals
+    ax.fill_between(returnPeriodsInYears, infRLCI[0], supRLCI[0], color=confidenceAreaColor, label='Confidence Area', zorder=1)
+
+    # Plot return levels
+    ax.plot(returnPeriodsInYears, returnLevels[0], color=returnLevelColor, linewidth=3, label='Return Levels', zorder=2)
+
+    # Plot confidence bars
+    ax.plot(returnPeriodsInYears, supRLCI[0], color=confidenceBarColor, linewidth=2, label='Upper CI', zorder=3)
+    ax.plot(returnPeriodsInYears, infRLCI[0], color=confidenceBarColor, linewidth=2, label='Lower CI', zorder=3)
+
+    # Set plot scale to logarithmic for x-axis
+    ax.set_xscale('log')
+
+    # Set axis limits
+    ax.set_xlim([minReturnPeriodYears, maxReturnPeriodYears])
+#    ax.set_ylim([minRL[0], maxRL[0]])
+    ax.set_ylim([minRL, maxRL])
+
+    # Labeling and formatting
+    ax.set_xlabel(xlabel, fontsize=24)
+    ax.set_ylabel(ylabel, fontsize=24)
+    ax.grid(True, which='both', zorder=4)
+    ax.tick_params(axis='both', labelsize=20)
+    ax.legend(fontsize=16)
+
+
+    # Finalizing plot appearance
+    if fig:
+        fig.subplots_adjust(left=0.1, right=0.9, top=0.9, bottom=0.1)
+
+    phandles = {
+        'fig': fig,
+        'ax': ax,
+        'confidence_area': ax.collections[0],  # first area collection
+        'return_levels': ax.lines[0],  # first line plot (return levels)
+        'upper_CI': ax.lines[1],  # second line plot (upper CI)
+        'lower_CI': ax.lines[2],  # third line plot (lower CI)
+    }
+
+    return phandles
+
+def tsEvaPlotReturnLevelsGEVFromAnalysisObj(nonStationaryEvaParams, timeIndex, **kwargs):
+    ylim = kwargs.get('ylim',None)
+    for key, value in kwargs.items():
+        if (key=='ylim'): 
+            ylim=value
+
+    epsilon = nonStationaryEvaParams[0]['parameters']['epsilon']
+    sigma = nonStationaryEvaParams[0]['parameters']['sigma'][timeIndex] if isinstance(nonStationaryEvaParams[0]['parameters']['sigma'], np.ndarray) else nonStationaryEvaParams[0]['parameters']['sigma']
+    mu = nonStationaryEvaParams[0]['parameters']['mu'][timeIndex] if isinstance(nonStationaryEvaParams[0]['parameters']['mu'], np.ndarray) else nonStationaryEvaParams[0]['parameters']['mu']
+    dtSampleYears = nonStationaryEvaParams[0]['parameters']['timeDeltaYears']
+    epsilonStdErr = nonStationaryEvaParams[0]['paramErr']['epsilonErr']
+    sigmaStdErr = nonStationaryEvaParams[0]['paramErr']['sigmaErr'][timeIndex] if isinstance(nonStationaryEvaParams[0]['paramErr']['sigmaErr'], np.ndarray) else nonStationaryEvaParams[0]['paramErr']['sigmaErr']
+    muStdErr = nonStationaryEvaParams[0]['paramErr']['muErr'][timeIndex] if isinstance(nonStationaryEvaParams[0]['paramErr']['muErr'], np.ndarray) else nonStationaryEvaParams[0]['paramErr']['muErr']
+    
+    phandles = tsEvaPlotReturnLevelsGEV(
+        epsilon,
+        sigma,
+        mu,
+        epsilonStdErr,
+        sigmaStdErr,
+        muStdErr,
+        ylim=ylim
+    )
+    return phandles
+
+                
+def tsEvaPlotReturnLevelsGPDFromAnalysisObj(nonStationaryEvaParams, timeIndex, **kwargs):
+
+    ylim = kwargs.get('ylim',None)
+    for key, value in kwargs.items():
+        if (key=='ylim'): 
+            ylim=value
+
+    epsilon = nonStationaryEvaParams[1]['parameters']['epsilon']
+    sigma = nonStationaryEvaParams[1]['parameters']['sigma'][timeIndex] if isinstance(nonStationaryEvaParams[1]['parameters']['sigma'], np.ndarray) else nonStationaryEvaParams[1]['parameters']['sigma']
+    threshold = nonStationaryEvaParams[1]['parameters']['threshold'][timeIndex] if isinstance(nonStationaryEvaParams[1]['parameters']['threshold'], np.ndarray) else nonStationaryEvaParams[1]['parameters']['threshold']
+    thStart = nonStationaryEvaParams[1]['parameters']['timeHorizonStart']
+    thEnd = nonStationaryEvaParams[1]['parameters']['timeHorizonEnd']
+    timeHorizonInYears = round((thEnd-thStart)/ 365.2425)
+    nPeaks = nonStationaryEvaParams[1]['parameters']['nPeaks']
+    
+    epsilonStdErr = nonStationaryEvaParams[1]['paramErr']['epsilonErr']
+    sigmaStdErr = nonStationaryEvaParams[1]['paramErr']['sigmaErr'][timeIndex] if isinstance(nonStationaryEvaParams[1]['paramErr']['sigmaErr'], np.ndarray) else nonStationaryEvaParams[1]['paramErr']['sigmaErr']
+    thresholdStdErr = nonStationaryEvaParams[1]['paramErr']['thresholdErr'][timeIndex] if isinstance(nonStationaryEvaParams[1]['paramErr']['thresholdErr'], np.ndarray) else nonStationaryEvaParams[1]['paramErr']['thresholdErr']
+
+    phandles = tsEvaPlotReturnLevelsGPD(
+        epsilon,
+        sigma,
+        threshold,
+        epsilonStdErr,
+        sigmaStdErr,
+        thresholdStdErr,
+        nPeaks,
+        timeHorizonInYears,
+        ylim=ylim
+    )
+    return phandles
+
+def tsPlotSeriesPotGPDRetLevFromAnalysisObj(nonStationaryEvaParams, stationaryTransformData, **kwargs):
+    """Plot original (non-stationary) series with time-varying GPD return levels and POT peaks.
+    Python port of MATLAB tsPlotSeriesPotGPDRetLevFromAnalysisObj."""
+    legendLocation = kwargs.get('legendLocation', 'upper left')
+    ylabel         = kwargs.get('ylabel', 'level (m)')
+    xlabel         = kwargs.get('xlabel', 'Date')
+    dateformat     = kwargs.get('dateformat', '%Y')
+    xtick          = kwargs.get('xtick', [])
+    figPosition    = kwargs.get('figPosition', [10, 10, 960, 420])
+    axisFontSize   = kwargs.get('axisFontSize', 16)
+    labelFontSize  = kwargs.get('labelFontSize', 18)
+    returnPeriods  = kwargs.get('returnPeriods', [5, 10, 30, 100])
+
+    timestamps = stationaryTransformData.timeStamps
+    series     = stationaryTransformData.nonStatSeries
+
+    epsilon      = nonStationaryEvaParams[1]['parameters']['epsilon']
+    sigma        = nonStationaryEvaParams[1]['parameters']['sigma']
+    threshold    = nonStationaryEvaParams[1]['parameters']['threshold']
+    thStart      = nonStationaryEvaParams[1]['parameters']['timeHorizonStart']
+    thEnd        = nonStationaryEvaParams[1]['parameters']['timeHorizonEnd']
+    timeHorizonInYears = round((thEnd - thStart) / 365.2425)
+    nPeaks       = nonStationaryEvaParams[1]['parameters']['nPeaks']
+    epsilonStdErr   = nonStationaryEvaParams[1]['paramErr']['epsilonErr']
+    sigmaStdErr     = nonStationaryEvaParams[1]['paramErr']['sigmaErr']
+    thresholdStdErr = nonStationaryEvaParams[1]['paramErr']['thresholdErr']
+
+    rlevel, _ = tsEvaComputeReturnLevelsGPD(
+        epsilon, sigma, threshold,
+        epsilonStdErr, sigmaStdErr, thresholdStdErr,
+        nPeaks, timeHorizonInYears, returnPeriods)
+
+    fig, ax = plt.subplots(figsize=(figPosition[2] / 100, figPosition[3] / 100))
+    colors = ['r', 'g', 'b', 'k', 'm', 'c']
+    ax.plot(timestamps, series, linewidth=0.5, label='Series')
+    for i, rp in enumerate(returnPeriods):
+        ax.plot(timestamps, rlevel[:, i], color=colors[i % len(colors)], label=str(rp))
+
+    peakIndexes = nonStationaryEvaParams[1]['objs'].get('peakIndexes')
+    if peakIndexes is not None:
+        ax.plot(timestamps[peakIndexes], series[peakIndexes], '*', color='cyan',
+                markersize=4, label='peaks')
+
+    ax.xaxis.set_major_formatter(mdates.DateFormatter(dateformat))
+    if xtick:
+        ax.set_xticks(xtick)
+        ax.set_xticklabels([datetime.fromordinal(int(t) - 366).strftime(dateformat) for t in xtick])
+    ax.set_xlim([timestamps[0], timestamps[-1]])
+    ax.set_xlabel(xlabel, fontsize=labelFontSize)
+    ax.set_ylabel(ylabel, fontsize=labelFontSize)
+    ax.tick_params(labelsize=axisFontSize)
+    ax.legend(loc=legendLocation, fontsize=axisFontSize)
+    ax.grid(True)
+    fig.tight_layout()
+    return {'fig': fig, 'ax': ax}
+
+
+def tsPlotSeriesYearMaxGEVRetLevFromAnalysisObj(nonStationaryEvaParams, stationaryTransformData, **kwargs):
+    """Plot original (non-stationary) series with time-varying GEV return levels and annual maxima.
+    Python port of MATLAB tsPlotSeriesYearMaxGEVRetLevFromAnalysisObj."""
+    legendLocation = kwargs.get('legendLocation', 'upper left')
+    ylabel         = kwargs.get('ylabel', 'level (m)')
+    xlabel         = kwargs.get('xlabel', 'Date')
+    dateformat     = kwargs.get('dateformat', '%Y')
+    xtick          = kwargs.get('xtick', [])
+    figPosition    = kwargs.get('figPosition', [10, 10, 960, 420])
+    axisFontSize   = kwargs.get('axisFontSize', 16)
+    labelFontSize  = kwargs.get('labelFontSize', 18)
+    returnPeriods  = kwargs.get('returnPeriods', [5, 10, 30, 100])
+
+    timestamps = stationaryTransformData.timeStamps
+    series     = stationaryTransformData.nonStatSeries
+
+    epsilon      = nonStationaryEvaParams[0]['parameters']['epsilon']
+    sigma        = nonStationaryEvaParams[0]['parameters']['sigma']
+    mu           = nonStationaryEvaParams[0]['parameters']['mu']
+    epsilonStdErr = nonStationaryEvaParams[0]['paramErr']['epsilonErr']
+    sigmaStdErr   = nonStationaryEvaParams[0]['paramErr']['sigmaErr']
+    muStdErr      = nonStationaryEvaParams[0]['paramErr']['muErr']
+
+    rlevel, _ = tsEvaComputeReturnLevelsGEV(
+        epsilon, sigma, mu,
+        epsilonStdErr, sigmaStdErr, muStdErr,
+        returnPeriods)
+
+    fig, ax = plt.subplots(figsize=(figPosition[2] / 100, figPosition[3] / 100))
+    colors = ['r', 'g', 'b', 'k', 'm', 'c']
+    ax.plot(timestamps, series, linewidth=0.5, label='Series')
+    for i, rp in enumerate(returnPeriods):
+        ax.plot(timestamps, rlevel[:, i], color=colors[i % len(colors)], label=f'{rp}-yr')
+
+    annualMaxIndexes = nonStationaryEvaParams[0]['objs'].get('annualMaxIndexes')
+    if annualMaxIndexes is not None:
+        ax.plot(timestamps[annualMaxIndexes], series[annualMaxIndexes], '*',
+                color='cyan', markersize=6, label='Annual max')
+
+    ax.xaxis.set_major_formatter(mdates.DateFormatter(dateformat))
+    if xtick:
+        ax.set_xticks(xtick)
+        ax.set_xticklabels([datetime.fromordinal(int(t) - 366).strftime(dateformat) for t in xtick])
+    ax.set_xlim([timestamps[0], timestamps[-1]])
+    ax.set_xlabel(xlabel, fontsize=labelFontSize)
+    ax.set_ylabel(ylabel, fontsize=labelFontSize)
+    ax.tick_params(labelsize=axisFontSize)
+    ax.legend(loc=legendLocation, fontsize=axisFontSize)
+    ax.grid(True)
+    fig.tight_layout()
+    return {'fig': fig, 'ax': ax}
+
+
+def tsEvaPlotReturnLevelsGPD(epsilon, sigma, threshold, epsilonStdErr, sigmaStdErr,thresholdStdErr,nPeaks,timeHorizonInYears,**kwargs):
+    # Default argument values
+
+    minReturnPeriodYears = kwargs.get('minReturnPeriodYears',5)
+    maxReturnPeriodYears = kwargs.get('maxReturnPeriodYears',1000)
+    confidenceAreaColor = kwargs.get('confidenceAreaColor',[0.741, 0.988, 0.788])  # light green
+    confidenceBarColor = kwargs.get('confidenceBarColor',[0.133, 0.545, 0.133])      # dark green
+    returnLevelColor = kwargs.get('returnLevelColor','k')
+    xlabel = kwargs.get('xlabel','return period (years)')
+    ylabel = kwargs.get('ylabel','return levels (m)')
+    ylim = kwargs.get('ylim',None)
+    dtSampleYears = kwargs.get('dtSampleYears',1)
+    ax = kwargs.get('ax',None)
+
+    for key, value in kwargs.items():
+        if (key=='minReturnPeriodYears'):
+            minReturnPeriodYears=value
+        if (key=='maxReturnPeriodYears'):
+            maxReturnPeriodYears=value
+        if (key=='confidenceAreaColor'):
+            confidenceAreaColor=value
+        if (key=='confidenceBarColor'):
+            confidenceBarColor=value
+        if (key=='returnLevelColor'):
+            returnLevelColor=value
+        if (key=='xlabel'):
+            xlabel=value
+        if (key=='ylabel'):
+            ylabel=value
+        if (key=='ylim'):
+            ylim=value
+        if (key=='dtSampleYears'):
+            dtSampleYears=value
+        if (key=='ax'):
+            ax=value
+
+    # Compute return periods and their corresponding periods in dt
+    returnPeriodsInYears = np.logspace(np.log10(minReturnPeriodYears), np.log10(maxReturnPeriodYears), num=100)
+    returnPeriodsInDts = returnPeriodsInYears / dtSampleYears
+
+    # Compute return levels and errors (this should call your custom function)
+    returnLevels, returnLevelsErrs = tsEvaComputeReturnLevelsGPD(epsilon, sigma, threshold, epsilonStdErr, sigmaStdErr, thresholdStdErr, nPeaks, timeHorizonInYears, returnPeriodsInDts)
+
+    # Confidence intervals
+    supRLCI = returnLevels + 2 * returnLevelsErrs
+    infRLCI = returnLevels - 2 * returnLevelsErrs
+    
+    # Determine Y limits based on the confidence intervals
+    if ylim is not None:
+        minRL = min(ylim)
+        maxRL = max(ylim)
+    else:
+        minRL = min(np.min(arr) for arr in infRLCI)
+        maxRL = max(np.min(arr) for arr in supRLCI)
+
+        
+    # Plotting
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(13, 7))  # Similar to figure position and size
+    else:
+        fig = None
+
+    # Area plot for confidence intervals
+    ax.fill_between(returnPeriodsInYears, infRLCI[0], supRLCI[0], color=confidenceAreaColor, label='Confidence Area', zorder=1)
+
+    # Plot return levels
+    ax.plot(returnPeriodsInYears, returnLevels[0], color=returnLevelColor, linewidth=3, label='Return Levels', zorder=2)
+
+    # Plot confidence bars
+    ax.plot(returnPeriodsInYears, supRLCI[0], color=confidenceBarColor, linewidth=2, label='Upper CI', zorder=3)
+    ax.plot(returnPeriodsInYears, infRLCI[0], color=confidenceBarColor, linewidth=2, label='Lower CI', zorder=3)
+
+    # Set plot scale to logarithmic for x-axis
+    ax.set_xscale('log')
+
+    # Set axis limits
+    ax.set_xlim([minReturnPeriodYears, maxReturnPeriodYears])
+#    ax.set_ylim([minRL[0], maxRL[0]])
+    ax.set_ylim([minRL, maxRL])
+
+    # Labeling and formatting
+    ax.set_xlabel(xlabel, fontsize=24)
+    ax.set_ylabel(ylabel, fontsize=24)
+    ax.grid(True, which='both', zorder=4)
+    ax.tick_params(axis='both', labelsize=20)
+    ax.legend(fontsize=16)
+
+
+    # Finalizing plot appearance
+    if fig:
+        fig.subplots_adjust(left=0.1, right=0.9, top=0.9, bottom=0.1)
+
+    phandles = {
+        'fig': fig,
+        'ax': ax,
+        'confidence_area': ax.collections[0],  # first area collection
+        'return_levels': ax.lines[0],  # first line plot (return levels)
+        'upper_CI': ax.lines[1],  # second line plot (upper CI)
+        'lower_CI': ax.lines[2],  # third line plot (lower CI)
+    }
+
+    return phandles
+
